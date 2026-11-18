@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: aquarium
+      POSTGRES_PASSWORD: aquarium
+      POSTGRES_DB: aquarium
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://aquarium:aquarium@db:5432/aquarium
+      SIMULATION_MODE: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+volumes:
+  pgdata:
