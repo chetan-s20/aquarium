@@ -1,14 +1,5 @@
-from fastapi.testclient import TestClient
-
-from app.main import app
-
-client = TestClient(app)
-
-
-def test_health():
-    r = client.get("/health")
-    assert r.status_code == 200
-    body = r.json()
+def test_health(client):
+    body = client.get("/health").json()
     assert body["status"] == "ok"
     assert body["database"] == "ok"
     assert body["simulation_mode"] is True

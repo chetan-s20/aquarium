@@ -1,19 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, Security
-
-from app.security import require_operator_key
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.models import Tank
+from app.security import require_operator_key
+from app.services.fish_simulator import simulate_fish
 from app.services.simulator import run_simulation
 
 router = APIRouter(prefix="/simulate", tags=["simulator"])
 
 
 @router.post("/run")
-def simulate(tank_id: str, count: int = 24, interval_minutes: int = 5, db: Session = Depends(get_db), _key: str = Security(require_operator_key)):
-    tank = db.get(Tank, tank_id)
-    if not tank:
+def simulate(
+    tank_id: str,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    interval_minutes: int = Query(10, ge=1, le=60),
+    db: Session = Depends(get_db),
+    _key: str = Security(require_operator_key),
+):
+    """Fill SIMULATED readings from the tank's last reading up to now."""
+    if not settings.simulation_mode:
+        raise HTTPException(status_code=403, detail="simulation is disabled (SIMULATION_MODE=false)")
+    if not db.get(Tank, tank_id):
         raise HTTPException(status_code=404, detail="tank not found")
-    inserted = run_simulation(db, tank_id, count=count, interval_minutes=interval_minutes)
-    return {"tank_id": tank_id, "inserted": inserted, "source": "simulator"}
+    inserted = run_simulation(db, tank_id, hours=hours, interval_minutes=interval_minutes)
+    positions = simulate_fish(db, tank_id, hours=min(hours, 48))
+    return {"tank_id": tank_id, "inserted": inserted, "fish_positions": positions, "source": "simulator"}

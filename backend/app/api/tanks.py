@@ -1,11 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Security
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Tank
-from app.schemas import TankCreate, TankRead
+from app.models import Sensor, Tank, Threshold
+from app.schemas import SensorRead, TankCreate, TankRead, ThresholdRead
+from app.security import require_operator_key
 
 router = APIRouter(prefix="/tanks", tags=["tanks"])
+
+
+def _tank(db: Session, tank_id: str) -> Tank:
+    tank = db.get(Tank, tank_id)
+    if not tank:
+        raise HTTPException(status_code=404, detail="tank not found")
+    return tank
 
 
 @router.get("", response_model=list[TankRead])
@@ -14,7 +22,7 @@ def list_tanks(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=TankRead, status_code=201)
-def create_tank(payload: TankCreate, db: Session = Depends(get_db)):
+def create_tank(payload: TankCreate, db: Session = Depends(get_db), _key: str = Security(require_operator_key)):
     tank = Tank(**payload.model_dump())
     db.add(tank)
     db.commit()
@@ -24,7 +32,21 @@ def create_tank(payload: TankCreate, db: Session = Depends(get_db)):
 
 @router.get("/{tank_id}", response_model=TankRead)
 def get_tank(tank_id: str, db: Session = Depends(get_db)):
-    tank = db.get(Tank, tank_id)
-    if not tank:
-        raise HTTPException(status_code=404, detail="tank not found")
-    return tank
+    return _tank(db, tank_id)
+
+
+@router.get("/{tank_id}/sensors", response_model=list[SensorRead])
+def list_sensors(tank_id: str, db: Session = Depends(get_db)):
+    _tank(db, tank_id)
+    return db.query(Sensor).filter(Sensor.tank_id == tank_id).order_by(Sensor.metric).all()
+
+
+@router.get("/{tank_id}/thresholds", response_model=list[ThresholdRead])
+def list_thresholds(tank_id: str, db: Session = Depends(get_db)):
+    """Effective limits per metric: tank-specific rows override global (tank_id NULL) ones."""
+    _tank(db, tank_id)
+    rows = db.query(Threshold).filter((Threshold.tank_id == tank_id) | (Threshold.tank_id.is_(None))).all()
+    effective: dict[str, Threshold] = {}
+    for t in sorted(rows, key=lambda t: t.tank_id is not None):
+        effective[t.metric] = t
+    return list(effective.values())

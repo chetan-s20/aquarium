@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +37,9 @@ class Tank(Base):
     volume_liters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     location: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Inside size of the area the camera sees (side view): turns pixel positions into cm.
+    length_cm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    depth_cm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 
@@ -212,3 +216,40 @@ class Label(Base):
     annotator: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class Fish(Base):
+    """One tracked fish. track_key is the tracker's id for it (ours, TRex or idtracker.ai)."""
+    __tablename__ = "fish"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    tank_id: Mapped[str] = mapped_column(String(36), ForeignKey("tanks.id"), nullable=False, index=True)
+    track_key: Mapped[str] = mapped_column(String(60), nullable=False)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    color_hex: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="in_tank")  # in_tank / removed
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    first_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+    __table_args__ = (UniqueConstraint("tank_id", "track_key", name="uq_fish_tank_track"),)
+
+
+class FishPosition(Base):
+    """Where a fish was. x: 0 = left wall .. 1 = right wall; y: 0 = water surface .. 1 = bottom."""
+    __tablename__ = "fish_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fish_id: Mapped[str] = mapped_column(String(36), ForeignKey("fish.id"), nullable=False)
+    tank_id: Mapped[str] = mapped_column(String(36), ForeignKey("tanks.id"), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    x: Mapped[float] = mapped_column(Float, nullable=False)
+    y: Mapped[float] = mapped_column(Float, nullable=False)
+    size: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # body length as fraction of tank length
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="camera")
+
+    __table_args__ = (
+        UniqueConstraint("fish_id", "observed_at", name="uq_fish_position_time"),
+        Index("ix_fish_positions_tank_time", "tank_id", "observed_at"),
+    )
