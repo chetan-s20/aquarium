@@ -3,7 +3,7 @@ import io
 from datetime import datetime, timedelta, timezone
 
 from app.config import settings
-from conftest import DEVICE, OPERATOR
+from conftest import DEVICE, login
 
 
 def _yesterday():
@@ -67,9 +67,11 @@ def test_tracker_can_post_positions_and_new_fish_appear(client):
 
 def test_staff_can_rename_and_remove_a_fish(client):
     fid = _by_name(client.get("/tanks/tank-b/fish").json())["Fish 2"]["id"]
+    client.cookies.clear()
     assert client.patch(f"/fish/{fid}", json={"name": "Goldie"}).status_code == 401
-    client.patch(f"/fish/{fid}", json={"name": "Goldie", "notes": "white spot on tail"}, headers=OPERATOR)
-    client.patch(f"/fish/{fid}", json={"status": "removed"}, headers=OPERATOR)
+    login(client)
+    client.patch(f"/fish/{fid}", json={"name": "Goldie", "notes": "white spot on tail"})
+    client.patch(f"/fish/{fid}", json={"status": "removed"})
     f = _by_name(client.get("/tanks/tank-b/fish").json())["Goldie"]
     assert f["status"] == "removed" and f["notes"] == "white spot on tail"
 

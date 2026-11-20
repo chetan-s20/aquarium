@@ -93,6 +93,7 @@ class AlertRead(ORM):
     id: str
     tank_id: str
     sensor_id: Optional[str]
+    device_id: Optional[str]
     metric: str
     severity: str
     status: str

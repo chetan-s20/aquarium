@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -158,5 +160,54 @@ export function Sparkline({ points }: { points: Point[] }) {
         </LineChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+type BarTipProps = { active?: boolean; payload?: { payload: { h: number; v: number } }[] };
+
+function BarTip({ active, payload }: BarTipProps) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div className="tip">
+      <div className="tip-time">{p.h}:00 – {p.h + 1}:00</div>
+      <div className="tip-value">{p.v === 0 ? "0 cm/s" : `${p.v.toFixed(1)} cm/s`}</div>
+    </div>
+  );
+}
+
+/** Hour-by-hour swimming speed (cm/s) for a fish's day — used by FishPage. */
+export function HourBars({ values }: { values: (number | null)[] }) {
+  const tok = useTokens();
+  if (!values.length) {
+    return <div className="chart-empty" style={{ height: 220 }}>No movement recorded on this day.</div>;
+  }
+  const data = values.map((v, h) => ({ h, v: v ?? 0 }));
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+        <CartesianGrid stroke={tok["--grid"]} vertical={false} />
+        <XAxis
+          dataKey="h"
+          type="number"
+          domain={["dataMin", "dataMax"]}
+          tickFormatter={(h: number) => `${h}:00`}
+          tick={{ fill: tok["--ink-2"], fontSize: 10 }}
+          tickLine={false}
+          axisLine={{ stroke: tok["--grid"] }}
+          minTickGap={32}
+        />
+        <YAxis
+          domain={[0, "dataMax"]}
+          tickFormatter={(v: number) => `${v.toFixed(0)}`}
+          tick={{ fill: tok["--ink-2"], fontSize: 11 }}
+          tickLine={false}
+          axisLine={false}
+          width={36}
+        />
+        <Tooltip content={<BarTip />} cursor={false} isAnimationActive={false} />
+        <Bar dataKey="v" fill={tok["--line"]} />
+      </BarChart>
+    </ResponsiveContainer>
   );
 }

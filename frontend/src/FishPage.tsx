@@ -59,7 +59,7 @@ export function FishPage({ fishId, onError }: { fishId: string; onError: (e: str
 
   async function save(body: Record<string, string>, message: string) {
     try {
-      await api(`/fish/${fishId}`, { method: "PATCH", body: JSON.stringify(body), operator: true });
+      await api(`/fish/${fishId}`, { method: "PATCH", body: JSON.stringify(body) });
       setSaved(message);
       setEditing(false);
       setTimeout(() => setSaved(""), 2500);

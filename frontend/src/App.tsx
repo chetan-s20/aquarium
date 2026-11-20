@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Alert, type Health, type Reading, type Tank, type Threshold } from "./api";
+import { api, login, type Alert, type Health, type Reading, type Tank, type Threshold } from "./api";
 import { Sparkline, TrendChart } from "./charts";
 import { ExportPanel } from "./ExportPanel";
 import {
@@ -16,6 +16,8 @@ import {
   type MetricKey,
   type Status,
 } from "./metrics";
+
+type User = { name: string; role: string };
 
 const RANGES = { "24h": { label: "24 hours", hours: 24 }, "7d": { label: "7 days", hours: 168 } } as const;
 type RangeKey = keyof typeof RANGES;
@@ -49,6 +51,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [loginName, setLoginName] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([api<Health>("/health"), api<Tank[]>("/tanks")])
@@ -58,6 +65,10 @@ export default function App() {
         setTankId((cur) => cur || t[0]?.id || "");
       })
       .catch((e: Error) => setError(`Can't reach the monitoring server (${e.message}). Check that the backend is running.`));
+  }, []);
+
+  useEffect(() => {
+    api<User>("/auth/me").then(setUser).catch(() => setUser(null));
   }, []);
 
   const load = useCallback(async () => {
@@ -104,7 +115,7 @@ export default function App() {
   async function generate() {
     setBusy(true);
     try {
-      await api(`/simulate/run?tank_id=${tankId}&hours=${RANGES[range].hours}`, { method: "POST", operator: true });
+      await api(`/simulate/run?tank_id=${tankId}&hours=${RANGES[range].hours}`, { method: "POST" });
       await load();
     } catch (e) {
       setError(`Couldn't generate readings: ${(e as Error).message}`);
@@ -115,10 +126,23 @@ export default function App() {
 
   async function acknowledge(id: string) {
     try {
-      await api(`/alerts/${id}/acknowledge?by=dashboard`, { method: "POST", operator: true });
+      await api(`/alerts/${id}/acknowledge?by=dashboard`, { method: "POST" });
       await load();
     } catch (e) {
       setError(`Couldn't acknowledge the alert: ${(e as Error).message}`);
+    }
+  }
+
+  async function loginUser() {
+    setLoginBusy(true);
+    setLoginError(null);
+    try {
+      await login(loginName, loginPassword);
+      setUser(await api<User>("/auth/me"));
+    } catch (e) {
+      setLoginError((e as Error).message);
+    } finally {
+      setLoginBusy(false);
     }
   }
 
@@ -175,6 +199,28 @@ export default function App() {
       {error && (
         <div className="notice error" role="alert">
           {error}
+        </div>
+      )}
+      {user === undefined ? null : !user && (
+        <section className="panel" aria-label="Operator login">
+          <h2>Operator login</h2>
+          <form onSubmit={(e) => { e.preventDefault(); void loginUser(); }}>
+            <label className="field">
+              Name
+              <input value={loginName} onChange={(e) => setLoginName(e.target.value)} autoFocus />
+            </label>
+            <label className="field">
+              Password
+              <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
+            </label>
+            <button className="btn primary" type="submit" disabled={loginBusy}>{loginBusy ? "Signing in…" : "Log in"}</button>
+            {loginError && <p className="notice error" role="alert">{loginError}</p>}
+          </form>
+        </section>
+      )}
+      {user && (
+        <div className="notice">
+          <span><strong>Logged in as {user.name}</strong> ({user.role}).</span>
         </div>
       )}
 

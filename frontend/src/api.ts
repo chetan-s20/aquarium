@@ -1,15 +1,17 @@
 export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
-const OPERATOR_KEY: string = import.meta.env.VITE_OPERATOR_KEY ?? "dev-operator-key-change-me";
 
-export async function api<T>(path: string, init?: RequestInit & { operator?: boolean }): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (init?.operator) headers["X-Operator-Key"] = OPERATOR_KEY;
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ? `${res.status}: ${body.detail}` : `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
+}
+
+export async function login(name: string, password: string): Promise<{ name: string; role: string }> {
+  return api("/auth/login", { method: "POST", body: JSON.stringify({ name, password }) });
 }
 
 export type Health = { status: string; env: string; simulation_mode: boolean };

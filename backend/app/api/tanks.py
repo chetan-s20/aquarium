@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import require_user
 from app.db import get_db
-from app.models import Sensor, Tank, Threshold
+from app.models import Sensor, Tank, Threshold, User
 from app.schemas import SensorRead, TankCreate, TankRead, ThresholdRead
-from app.security import require_operator_key
+from app.services.audit import audit
 
 router = APIRouter(prefix="/tanks", tags=["tanks"])
 
@@ -22,9 +23,11 @@ def list_tanks(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=TankRead, status_code=201)
-def create_tank(payload: TankCreate, db: Session = Depends(get_db), _key: str = Security(require_operator_key)):
+def create_tank(payload: TankCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
     tank = Tank(**payload.model_dump())
     db.add(tank)
+    db.flush()
+    audit(db, user.name, "create_tank", "tank", tank.id, payload.name)
     db.commit()
     db.refresh(tank)
     return tank

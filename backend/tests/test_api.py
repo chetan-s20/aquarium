@@ -3,7 +3,7 @@ import io
 from datetime import datetime, timedelta, timezone
 
 from app.config import settings
-from conftest import DEVICE, OPERATOR
+from conftest import DEVICE, login
 
 
 BASE = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=30)  # before any simulated data
@@ -21,6 +21,7 @@ def test_sensors_have_no_tds_and_include_dissolved_oxygen(client):
 
 
 def test_write_endpoints_need_keys(client):
+    client.cookies.clear()
     assert client.post("/simulate/run", params={"tank_id": "tank-a"}).status_code == 401
     assert client.post("/readings", json={"sensor_id": "x", "observed_at": "2026-01-01T00:00:00Z"}).status_code == 401
     assert client.post("/tanks", json={"name": "x"}).status_code == 401
@@ -59,7 +60,8 @@ def test_alert_opens_escalates_and_resolves(client):
     _post(client, sid, 6.0, 270)  # recovered
     assert active() == []
 
-    ack = client.post(f"/alerts/{a['id']}/acknowledge", headers=OPERATOR).json()
+    login(client)
+    ack = client.post(f"/alerts/{a['id']}/acknowledge").json()
     assert ack["status"] == "resolved" and ack["acknowledged_by"] == "operator"
 
     _post(client, sid, 4.0, 260)  # a new dip after recovery opens a NEW alert
@@ -75,7 +77,8 @@ def test_simulated_week_raises_an_alert_per_dawn_dip(client):
 
 
 def test_simulation_tops_up_without_duplicates(client):
-    first = client.post("/simulate/run", params={"tank_id": "tank-a"}, headers=OPERATOR).json()["inserted"]
+    login(client)
+    first = client.post("/simulate/run", params={"tank_id": "tank-a"}).json()["inserted"]
     assert first < 6 * 3  # already filled to ~now by the seed
     readings = client.get("/readings", params={"tank_id": "tank-a", "metric": "temperature", "limit": 20000}).json()
     times = [r["observed_at"] for r in readings]
@@ -127,7 +130,8 @@ def test_import_preview_and_commit(client):
     assert (p["row_count"], p["accepted_count"], p["duplicate_count"]) == (4, 2, 1)
 
     files = {"file": ("t.csv", io.BytesIO(data), "text/csv")}
-    c = client.post("/imports/commit", files=files, data={"mapping": mapping}, headers=OPERATOR).json()
+    login(client)
+    c = client.post("/imports/commit", files=files, data={"mapping": mapping}).json()
     assert (c["accepted_count"], c["rejected_count"]) == (1, 3)
 
 

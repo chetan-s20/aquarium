@@ -151,6 +151,7 @@ class Alert(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     tank_id: Mapped[str] = mapped_column(String(36), ForeignKey("tanks.id"), nullable=False, index=True)
     sensor_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("sensors.id"), nullable=True, index=True)
+    device_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("devices.id"), nullable=True, index=True)
     metric: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="warning")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
@@ -253,3 +254,30 @@ class FishPosition(Base):
         UniqueConstraint("fish_id", "observed_at", name="uq_fish_position_time"),
         Index("ix_fish_positions_tank_time", "tank_id", "observed_at"),
     )
+
+
+class User(Base):
+    """Operator account (Phase 6): replaces the shared X-Operator-Key with password login."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="operator")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class AuditLog(Base):
+    """Operator-action audit trail (Phase 6). Appended on the same session the
+    action uses; rows are never updated or deleted."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    actor: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    entity_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)

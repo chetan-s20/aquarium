@@ -10,12 +10,17 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import models  # noqa: E402,F401
+from app.config import settings  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from scripts.seed import seed  # noqa: E402
 
 DEVICE = {"X-Device-Key": "dev-device-key-change-me"}
-OPERATOR = {"X-Operator-Key": "dev-operator-key-change-me"}
+
+
+def login(client):
+    r = client.post("/auth/login", json={"name": "operator", "password": settings.operator_password})
+    assert r.status_code == 200, r.text
 
 
 @pytest.fixture(scope="session")

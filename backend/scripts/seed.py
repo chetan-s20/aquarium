@@ -11,9 +11,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session  # noqa: E402
 
+from app.auth import hash_password
 from app.catalog import METRICS  # noqa: E402
+from app.config import settings  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
-from app.models import Device, Sensor, Tank, Threshold  # noqa: E402
+from app.models import Device, Sensor, Tank, Threshold, User  # noqa: E402
 from app.services.fish_simulator import simulate_fish  # noqa: E402
 from app.services.simulator import run_simulation  # noqa: E402
 
@@ -32,6 +34,11 @@ HYSTERESIS = {"dissolved_oxygen": 0.3, "temperature": 0.5, "ph": 0.1, "turbidity
 
 
 def seed(db: Session, hours: int = 168, fish_hours: int = 48) -> int:
+    if not db.query(User).filter_by(name="operator").first():
+        db.add(User(name="operator",
+                    password_hash=hash_password(settings.operator_password, salt="operator"),
+                    role="operator"))
+        db.commit()
     for metric, spec in METRICS.items():
         if spec["thresholds"] and not db.query(Threshold).filter_by(metric=metric, tank_id=None).first():
             lc, lw, hw, hc = spec["thresholds"]

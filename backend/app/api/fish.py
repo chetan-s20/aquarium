@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Security
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth import require_user
 from app.db import get_db
-from app.models import Fish, Tank
+from app.models import Fish, Tank, User
 from app.schemas import UTCDateTime
-from app.security import require_device_key, require_operator_key
+from app.security import require_device_key
+from app.services.audit import audit
 from app.services.fish import ingest_positions, tank_fish_report
 
 router = APIRouter(tags=["fish"])
@@ -64,11 +66,13 @@ def get_fish(fish_id: str, day: Optional[date] = None, db: Session = Depends(get
 
 
 @router.patch("/fish/{fish_id}")
-def update_fish(fish_id: str, body: FishUpdate, db: Session = Depends(get_db), _k: str = Security(require_operator_key)):
+def update_fish(fish_id: str, body: FishUpdate, db: Session = Depends(get_db), user: User = Depends(require_user)):
     fish = db.get(Fish, fish_id)
     if not fish:
         raise HTTPException(status_code=404, detail="fish not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(fish, k, v)
+    db.flush()
+    audit(db, user.name, "update_fish", "fish", fish.id)
     db.commit()
     return {"id": fish.id, "name": fish.name, "notes": fish.notes, "status": fish.status}

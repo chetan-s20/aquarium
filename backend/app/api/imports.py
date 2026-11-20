@@ -1,10 +1,12 @@
 import json
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Security, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.auth import require_user
 from app.db import get_db
-from app.security import require_operator_key
+from app.models import User
+from app.services.audit import audit
 from app.services.importer import commit_import, validate_csv
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -35,10 +37,12 @@ async def commit(
     file: UploadFile = File(...),
     mapping: str | None = Form(None),
     db: Session = Depends(get_db),
-    _key: str = Security(require_operator_key),
+    user: User = Depends(require_user),
 ):
     content, mp = await _read(file, mapping)
     run = commit_import(db, content, file.filename or "upload.csv", mp)
+    audit(db, user.name, "import_commit", "import_run", run.id)
+    db.commit()
     return {
         "import_run_id": run.id,
         "status": run.status,

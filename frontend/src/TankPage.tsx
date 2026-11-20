@@ -54,7 +54,7 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
 
   async function acknowledge(id: string) {
     try {
-      await api(`/alerts/${id}/acknowledge?by=dashboard`, { method: "POST", operator: true });
+      await api(`/alerts/${id}/acknowledge?by=dashboard`, { method: "POST" });
       load();
     } catch (e) {
       onError(`Couldn't mark the alert as seen: ${(e as Error).message}`);

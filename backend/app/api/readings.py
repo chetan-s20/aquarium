@@ -7,7 +7,7 @@ from app.db import get_db
 from app.models import Device, Reading, Sensor
 from app.schemas import ReadingCreate, ReadingRead, UTCDateTime
 from app.security import require_device_key
-from app.services.alerts import evaluate_thresholds
+from app.services.alerts import evaluate_thresholds, resolve_device_alerts
 from app.services.quality import QUALITY_RULE_VERSION, evaluate_reading
 
 router = APIRouter(prefix="/readings", tags=["readings"])
@@ -47,6 +47,7 @@ def create_reading(payload: ReadingCreate, db: Session = Depends(get_db), _key: 
     device = db.get(Device, sensor.device_id)
     if device:
         device.last_seen_at = datetime.now(timezone.utc)
+        resolve_device_alerts(db, device.id)
     evaluate_thresholds(db, reading)
     db.commit()
     db.refresh(reading)

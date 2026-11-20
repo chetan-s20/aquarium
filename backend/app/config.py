@@ -14,7 +14,14 @@ class Settings(BaseSettings):
     # Farm local time vs UTC (India = 5.5). Only used to put the simulated dawn at local dawn.
     farm_utc_offset_hours: float = 5.5
     device_api_key: str = "dev-device-key-change-me"
-    operator_api_key: str = "dev-operator-key-change-me"
+    # Phase 6: operators log in (password) instead of a shared operator key;
+    # devices still authenticate with the device key.
+    operator_password: str = "letmein"
+    secret_key: str = "dev-secret-change-me"
+    # Retention policy (Phase 6): delete readings older than this many days; 0 = keep all.
+    retention_days: int = 0
+    # A gateway posts readings every 1–5 min (Phase 3); 10 min of silence is off-line.
+    device_offline_minutes: int = 10
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     @field_validator("cors_origins", mode="before")

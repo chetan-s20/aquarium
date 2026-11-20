@@ -1,8 +1,10 @@
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models import Alert, Reading, Threshold
+from app.config import settings
+from app.models import Alert, Device, Reading, Threshold
 
 
 def _severity(value: float, t: Threshold, margin: float = 0.0) -> Optional[str]:
@@ -80,3 +82,51 @@ def _reason(r: Reading, sev: str, t: Threshold) -> str:
     high = t.high_critical if sev == "critical" else t.high_warning
     side = f"below {low}" if low is not None and r.value <= low else f"above {high}"
     return f"{r.metric.replace('_', ' ')} {r.value:g} {r.unit} is {side} ({sev} limit)"
+
+
+def evaluate_device_offline(db: Session, now: Optional[datetime] = None) -> list[Alert]:
+    """Open one warning alert per device that stopped reporting past the offline window.
+
+    Devices post readings every 1–5 min (Phase 3); longer silence means the gateway
+    is down or the link is lost. Demo devices (status "simulated") never report by
+    design, so they are skipped.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=settings.device_offline_minutes)
+    opened = []
+    for d in db.query(Device).order_by(Device.id):
+        if d.status == "simulated":
+            continue
+        seen = d.last_seen_at or d.created_at
+        if seen is not None and seen.tzinfo is None:  # SQLite drops tzinfo on read
+            seen = seen.replace(tzinfo=timezone.utc)
+        if seen is not None and seen >= cutoff:
+            continue
+        if db.query(Alert).filter(Alert.device_id == d.id, Alert.status.in_(["open", "acknowledged"])).first():
+            continue
+        alert = Alert(
+            tank_id=d.tank_id, device_id=d.id, metric="device_offline",
+            severity="warning", status="open", value=None,
+            reason=f"device {d.name} has not reported for {settings.device_offline_minutes} min",
+            source="rule", triggered_at=now,
+        )
+        db.add(alert)
+        opened.append(alert)
+    if opened:
+        db.commit()
+    return opened
+
+
+def resolve_device_alerts(db: Session, device_id: Optional[str], now: Optional[datetime] = None) -> int:
+    """Close the device-offline alert when the device reports again (on the reading's arrival)."""
+    if not device_id:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    closed = 0
+    for a in db.query(Alert).filter(Alert.device_id == device_id, Alert.status.in_(["open", "acknowledged"])):
+        a.status = "resolved"
+        a.resolved_at = now
+        closed += 1
+    if closed:
+        db.commit()
+    return closed

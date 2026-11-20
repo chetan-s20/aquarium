@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Security
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.auth import require_user
 from app.config import settings
 from app.db import get_db
-from app.models import Tank
-from app.security import require_operator_key
+from app.models import Tank, User
 from app.services.fish_simulator import simulate_fish
 from app.services.simulator import run_simulation
 
@@ -17,7 +17,7 @@ def simulate(
     hours: int = Query(24, ge=1, le=24 * 30),
     interval_minutes: int = Query(10, ge=1, le=60),
     db: Session = Depends(get_db),
-    _key: str = Security(require_operator_key),
+    user: User = Depends(require_user),
 ):
     """Fill SIMULATED readings from the tank's last reading up to now."""
     if not settings.simulation_mode:

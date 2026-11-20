@@ -115,11 +115,14 @@ cd frontend; npm run build          # type-check and build
 | `DATABASE_URL` | `sqlite:///./aquarium.db` | Use `postgresql+psycopg://...` in production |
 | `SIMULATION_MODE` | `true` | Allows the simulator and shows the demo banner |
 | `FARM_UTC_OFFSET_HOURS` | `5.5` | Puts the simulated dawn oxygen low at local dawn |
-| `DEVICE_API_KEY` / `OPERATOR_API_KEY` | dev values | **Change before any shared deployment** |
+| `DEVICE_API_KEY` | dev value | Devices post readings with `X-Device-Key` |
+| `OPERATOR_PASSWORD` | `letmein` | Password of the seeded `operator` account |
+| `SECRET_KEY` | dev value | Signs operator session cookies |
 | `CORS_ORIGINS` | localhost:5173 | Comma-separated dashboard origins |
 
-The frontend reads `VITE_API_BASE` and `VITE_OPERATOR_KEY`. The operator key is built into the
-dashboard bundle, so keep the dashboard on the farm network until login is added (Phase 6).
+The frontend reads `VITE_API_BASE` and calls the API with the operator's session cookie, set on
+login (the seeded `operator` account, password from `OPERATOR_PASSWORD`); the dashboard shows an
+operator-login form until you log in. Devices keep using `X-Device-Key`.
 
 ## Important caveats
 
