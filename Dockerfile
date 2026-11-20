@@ -10,5 +10,5 @@ FROM python:3.11-slim
 WORKDIR /app/backend
 COPY backend/ /app/backend/
 COPY --from=frontend-build /app/frontend/dist /app/backend/static
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 CMD ["sh", "-c", "alembic upgrade head && python scripts/seed.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
