@@ -8,6 +8,8 @@ __pycache__/
 .pytest_cache/
 node_modules/
 frontend/dist/
+# Built frontend served by the backend in the deploy container
+backend/static/
 # Data / models
 data/
 ml/models/

@@ -22,7 +22,7 @@ for module in (health, tanks, readings, alerts, auth, fish, export, simulator, i
     app.include_router(module.router)
 
 # Serve the built frontend (single-container deploy) when it is present.
-_static = os.path.join(os.path.dirname(__file__), "static")
+_static = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 if os.path.isdir(_static):
     app.mount("/", StaticFiles(directory=_static, html=True), name="frontend")
 
