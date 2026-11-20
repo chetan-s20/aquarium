@@ -187,3 +187,54 @@ report is written to `ml/models/disease_report.json`.
 - Fish behaviour and computer vision: [Fish tracking & behaviour survey (arXiv 2406.17800)](https://arxiv.org/html/2406.17800v1);
   [Hypoxia stress behaviour detection](https://chaoweifang.github.io/publication/aquaculture25real-time);
   [Computer vision fish-behaviour monitoring review (PMC5903295)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5903295/).
+
+## 9. Work log — done vs. left (status as of 20 Nov 2026, commit 2bb3b29 on main)
+
+### Done
+
+- **Phase 3 server-side — device-offline alert.** Devices post readings every 1–5 min;
+  `evaluate_device_offline` (`backend/app/services/alerts.py`) sweeps on every `GET /alerts` and
+  opens one warning alert per device that has not reported for `DEVICE_OFFLINE_MINUTES` (default
+  10). The alert resolves when the device posts a reading again. `alerts.device_id` column added
+  (migration `4d52c4042583`). Tests: `tests/test_device_offline.py` (3).
+
+- **Phase 4 server-side — data-driven activity limits.** `derive_activity_limits`
+  (`backend/app/services/activity_limits.py`) pairs valid activity readings with nearby (±30 min)
+  valid dissolved-oxygen readings; DO below the tank's warning limit is a "low-DO event"; returns
+  a proposal (`low_warning` = the activity level typically reached during low-DO events) only when
+  at least 5 such events have activity. Tests: `tests/test_activity_limits.py` (3).
+
+- **Phase 5 — dawn DO forecast.** `dawn_do_forecast` (`backend/app/services/forecast.py`) fits DO
+  vs local hour over the last readings before the next local dawn (farm offset, hour 4.0) and
+  extrapolates. Tests: `tests/test_forecast.py` (3).
+
+- **Phase 6 — login/roles, audit, retention, backup.**
+  - Login/roles: `users` table + migration `ea191d344f70`; `app/auth.py` (pbkdf2 password hashing,
+    HMAC-signed `aquarium_session` cookie, `require_user`); `POST /auth/login`, `POST /auth/logout`,
+    `GET /auth/me` (`app/api/auth.py`). Operator endpoints (create tank, acknowledge, simulate,
+    imports commit, fish rename) now require a session; devices keep `X-Device-Key`. CORS allows
+    credentials. Seed creates the `operator` account (password from `OPERATOR_PASSWORD`, default
+    `letmein`). Frontend: cookie auth + operator-login form in `App.tsx`. Tests:
+    `tests/test_auth.py` (3).
+  - Audit log: `audit_log` table + migration `92be7bbac19c`; write-through `audit()`
+    (`app/services/audit.py`) on `create_tank`, `update_fish`, `acknowledge`, `import_commit`.
+    Tests: `tests/test_audit.py`.
+  - Retention: `RETENTION_DAYS` setting (0 = off) + `delete_expired_readings`
+    (`app/services/retention.py`) + `scripts/retain.py`. Tests: `tests/test_retention.py`.
+  - Backup: `scripts/backup.sh` (copies the SQLite file, `pg_dump` for PostgreSQL).
+
+All 33 backend tests pass; `npm run build` passes.
+
+### Left
+
+- **Phase 3 install — probes + gateway.** The gateway must post readings every 1–5 min to
+  `POST /readings` with `X-Device-Key`; each device must be registered in `devices`. Farm
+  decisions: which DO probe and which gateway (ESP32/RPi).
+- **Phase 3b — SMS/phone-call notifications.** The treg catalog has no SMS-send or phone-call
+  provider (`catalog_request`s filed: #3856 `sms.send`, #3855 `phone.call`). Needs the team to add
+  a provider or use their own SMS bridge.
+- **Phase 4 — CNN + farm photos.** The farm-scraped baseline doesn't match the farm's camera,
+  lighting and species; needs the farm's own labelled photos (per class, e.g. healthy + the
+  South-Asian carp diseases).
+- **Phase 5 — validation on held-out nights.** Forecast error on real pre-dawn events; needs real
+  sensors and watching actual overnight DO vs the forecast.
