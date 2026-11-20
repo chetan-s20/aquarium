@@ -1,5 +1,8 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import alerts, auth, export, fish, health, imports, readings, simulator, tanks
 from app.config import settings
@@ -17,6 +20,11 @@ app.add_middleware(
 
 for module in (health, tanks, readings, alerts, auth, fish, export, simulator, imports):
     app.include_router(module.router)
+
+# Serve the built frontend (single-container deploy) when it is present.
+_static = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static):
+    app.mount("/", StaticFiles(directory=_static, html=True), name="frontend")
 
 
 @app.get("/")
