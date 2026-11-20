@@ -1,4 +1,5 @@
-export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+// Same hostname as the page: the login cookie is SameSite=lax, and localhost vs 127.0.0.1 count as different sites.
+export const API_BASE: string = import.meta.env.VITE_API_BASE ?? `http://${window.location.hostname}:8000`;
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };

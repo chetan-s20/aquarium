@@ -150,7 +150,12 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
                   title={`${f.name}: ${FISH_STATUS[f.status].label}`}
                 >
                   {(f.status === "check" || f.status === "watch") && <span className={`badge b-${f.status}`}>!</span>}
-                  <FishIcon color={f.color_hex} size={34} facing={f.last_position.heading} />
+                  <FishIcon
+                    color={f.color_hex}
+                    size={34}
+                    facing={f.last_position.heading}
+                    faded={f.flags.some((fl) => fl.text.startsWith("Not seen"))} // old position, not where it is now
+                  />
                   <span className="scene-name">{f.name}</span>
                 </a>
               ),

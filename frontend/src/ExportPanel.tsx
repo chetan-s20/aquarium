@@ -32,7 +32,15 @@ export function ExportPanel({ tanks }: { tanks: Tank[] }) {
     return `${API_BASE}/export/readings.csv?${q}`;
   }, [tankIds, metrics, from, to, layout, validOnly]);
 
-  const invalid = metrics.length === 0 || (from && to && from > to);
+  const fishUrl = useMemo(() => {
+    const q = new URLSearchParams();
+    tankIds.forEach((t) => q.append("tank_id", t));
+    if (from) q.set("start", new Date(`${from}T00:00:00`).toISOString());
+    if (to) q.set("end", new Date(`${to}T23:59:59`).toISOString());
+    return `${API_BASE}/export/fish-positions.csv?${q}`;
+  }, [tankIds, from, to]);
+
+  const invalid =metrics.length === 0 || (from && to && from > to);
 
   return (
     <section className="panel export" aria-labelledby="export-h">
@@ -123,6 +131,18 @@ export function ExportPanel({ tanks }: { tanks: Tank[] }) {
         <span className="hint">
           {invalid ? "Pick at least one measurement and a valid period." : "The link always returns fresh data, so it works in scripts too."}
         </span>
+      </div>
+
+      <div className="panel-head fish-export">
+        <h2>Fish movement data</h2>
+        <p className="lede">
+          Every position of every fish for the tanks and period above: time, fish, place in the tank (in cm) and body length.
+        </p>
+      </div>
+      <div className="export-actions">
+        <a className={`btn primary${from > to ? " disabled" : ""}`} href={from > to ? undefined : fishUrl} download>
+          Download fish positions
+        </a>
       </div>
     </section>
   );

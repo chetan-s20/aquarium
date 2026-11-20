@@ -69,13 +69,13 @@ export function FishPage({ fishId, onError }: { fishId: string; onError: (e: str
     }
   }
 
+  const segs = useSegments(path); // hooks must run on every render, so before the loading return
   if (!data) return <div className="page"><p className="empty">Loading…</p></div>;
   const f = data.fish;
   const g = data.group;
   const cur = path[at];
   const prev = path[Math.max(0, at - 1)];
   const facing = cur && prev && cur.x < prev.x ? -1 : 1;
-  const segs = useSegments(path);
   const maxHeat = Math.max(...f.heatmap.flat(), 0.0001);
 
   return (

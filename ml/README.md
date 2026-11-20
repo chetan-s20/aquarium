@@ -5,6 +5,7 @@ Everything here uses OpenCV. Install with `python -m pip install -r ml/requireme
 | File | Purpose |
 |---|---|
 | `vision.py` | Shared OpenCV code: image features (CLAHE, HSV histograms, HOG) and `ActivityMeter` (MOG2 motion) |
+| `track_fish.py` | Tracks every fish (OpenCV detection + ByteTrack + re-linking) and posts each fish's positions to the API |
 | `fish_activity.py` | Video or camera to `fish_activity` and `surface_activity` readings, posted to the API and/or a CSV |
 | `download_dataset.py` | Downloads the Kaggle fish-disease images with `kagglehub.dataset_download()` |
 | `train_disease_classifier.py` | Trains OpenCV features + SVM; writes `models/disease_svm.joblib` and `models/disease_report.json` |

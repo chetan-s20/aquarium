@@ -147,66 +147,41 @@ export function TrendChart({
   );
 }
 
-export function Sparkline({ points }: { points: Point[] }) {
-  const tok = useTokens();
-  if (points.length < 2) return <div className="spark" />;
-  return (
-    <div className="spark" aria-hidden="true">
-      <ResponsiveContainer width="100%" height={36}>
-        <LineChart data={points} margin={{ top: 4, right: 0, bottom: 4, left: 0 }}>
-          <YAxis hide domain={["dataMin", "dataMax"]} />
-          <XAxis hide dataKey="t" type="number" domain={["dataMin", "dataMax"]} />
-          <Line type="monotone" dataKey="v" stroke={tok["--line"]} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-type BarTipProps = { active?: boolean; payload?: { payload: { h: number; v: number } }[] };
-
-function BarTip({ active, payload }: BarTipProps) {
-  if (!active || !payload?.length) return null;
-  const p = payload[0].payload;
-  return (
-    <div className="tip">
-      <div className="tip-time">{p.h}:00 – {p.h + 1}:00</div>
-      <div className="tip-value">{p.v === 0 ? "0 cm/s" : `${p.v.toFixed(1)} cm/s`}</div>
-    </div>
-  );
-}
-
-/** Hour-by-hour swimming speed (cm/s) for a fish's day — used by FishPage. */
+/** 24 bars, one per hour of the farm day. Single series, so no legend; tooltip says it in words. */
 export function HourBars({ values }: { values: (number | null)[] }) {
   const tok = useTokens();
-  if (!values.length) {
-    return <div className="chart-empty" style={{ height: 220 }}>No movement recorded on this day.</div>;
-  }
-  const data = values.map((v, h) => ({ h, v: v ?? 0 }));
+  const max = Math.max(...values.map((v) => v ?? 0), 0.0001);
+  const data = values.map((v, h) => ({ h, v: v ?? 0, seen: v != null }));
+  const words = (v: number) => (v / max > 0.66 ? "Swimming a lot" : v / max > 0.33 ? "Swimming gently" : "Mostly resting");
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke={tok["--grid"]} vertical={false} />
+      <BarChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 16 }} barCategoryGap={2}>
         <XAxis
           dataKey="h"
-          type="number"
-          domain={["dataMin", "dataMax"]}
-          tickFormatter={(h: number) => `${h}:00`}
-          tick={{ fill: tok["--ink-2"], fontSize: 10 }}
+          tickFormatter={(h: number) => (h % 6 === 0 ? `${String(h).padStart(2, "0")}:00` : "")}
+          interval={0}
+          tick={{ fill: tok["--ink-2"], fontSize: 12 }}
           tickLine={false}
           axisLine={{ stroke: tok["--grid"] }}
-          minTickGap={32}
         />
-        <YAxis
-          domain={[0, "dataMax"]}
-          tickFormatter={(v: number) => `${v.toFixed(0)}`}
-          tick={{ fill: tok["--ink-2"], fontSize: 11 }}
-          tickLine={false}
-          axisLine={false}
-          width={36}
+        <YAxis hide domain={[0, max]} />
+        <Tooltip
+          cursor={{ fill: tok["--grid"] }}
+          isAnimationActive={false}
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const p = payload[0].payload as { h: number; v: number; seen: boolean };
+            return (
+              <div className="tip">
+                <div className="tip-time">
+                  {String(p.h).padStart(2, "0")}:00 to {String((p.h + 1) % 24).padStart(2, "0")}:00
+                </div>
+                <div className="tip-value">{p.seen ? words(p.v) : "Not seen"}</div>
+              </div>
+            );
+          }}
         />
-        <Tooltip content={<BarTip />} cursor={false} isAnimationActive={false} />
-        <Bar dataKey="v" fill={tok["--line"]} />
+        <Bar dataKey="v" fill={tok["--line"]} radius={[4, 4, 0, 0]} isAnimationActive={false} />
       </BarChart>
     </ResponsiveContainer>
   );

@@ -117,6 +117,44 @@ clarity. Compare it within the same camera over time, not between tanks. Night-t
 lighting. Identifying individual fish (counting, trajectories, YOLO-style detection) is a Phase 5
 upgrade.
 
+## 5b. Tracking each fish (added 20 Nov 2026)
+
+**What the farm asked for:** one page per tank listing every fish; click a fish to see where it went
+through the day, how it behaved and whether it looks healthy, explained for non-technical staff.
+
+**Research: existing tools**
+
+| Tool | What it does | How we use it |
+|---|---|---|
+| OpenCV | Finds fish in each frame (difference from an empty-tank photo, or MOG2 background learning) | Detection inside `ml/track_fish.py` |
+| Roboflow `trackers` (ByteTrack, Apache-2.0) + `supervision` | Links detections frame to frame into tracks; works with any detector | Tracking inside `ml/track_fish.py` |
+| TRex | Real-time multi-animal tracking; markerless visual identification of up to ~100 individuals; exports per-individual CSV/NPZ | Upgrade path when identity must hold all day |
+| idtracker.ai | Deep-learning identity tracking of unmarked animals; >99% identity accuracy reported in most lab videos | Same upgrade path |
+
+**Design**
+
+- The tracker posts `{track_key, time, x, y, size, colour}` to `POST /tanks/{id}/fish-positions`.
+  Any of the tools above can feed the same endpoint, so swapping trackers needs no backend change.
+- Positions are a side view: `x` 0 = left wall to 1 = right wall, `y` 0 = surface to 1 = bottom.
+  The tank's `length_cm` / `depth_cm` turn them into centimetres.
+- Re-linking: ByteTrack starts a new track whenever a fish is hidden. `track_fish.py` gives that new
+  track back to the nearest recently-lost fish and never creates more fish than `--max-fish`.
+- Resting fish: plain MOG2 slowly absorbs a fish that stops moving into the background, so a sick
+  fish lying on the bottom would vanish. A photo of the empty tank (`--background`) avoids that.
+- Health is **relative to tankmates on the same day**. Behaviour that is normal differs by species
+  and setting, and the welfare literature treats *abrupt deviations from normal behaviour* as the
+  reliable sign of stress or disease. Flags: much less active, resting on the bottom, staying at the
+  surface (possible low oxygen or gill trouble), keeping apart from the group, and not seen for 2 hours.
+
+**Limits and next steps**
+
+- Identity can swap when two similar fish cross, and two touching fish show up as one blob. For
+  dense tanks, add a trained detector (YOLO) and/or use TRex / idtracker.ai.
+- One side camera can't see depth from the glass, so a fish hidden behind another counts as not seen.
+- Activity limits are relative. Once real data exists, add absolute baselines per species.
+- Storage: 12 fish at 5 s is about 200k rows per tank-day. Use PostgreSQL and a retention policy
+  (for example, keep 5 s data for 30 days and per-minute data after that).
+
 ## 6. Disease model
 
 **Dataset:** Kaggle "Freshwater Fish Disease Aquaculture in South Asia" (subirbiswas19). It has 7
@@ -177,6 +215,12 @@ report is written to `ml/models/disease_report.json`.
 
 ## Sources
 
+- Fish identity tracking: [TRex (eLife 2021)](https://elifesciences.org/articles/64000);
+  [idtracker.ai new version (eLife reviewed preprint)](https://elifesciences.org/reviewed-preprints/107602);
+  [Roboflow trackers / supervision docs](https://supervision.roboflow.com/latest/trackers/).
+- Behaviour as a welfare signal: [Stirling thesis on AI behaviour monitoring](https://dspace.stir.ac.uk/bitstream/1893/32947/1/070721_Barreto.pdf);
+  [Fish welfare in aquaculture editorial (PMC12383228)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12383228/).
+
 - Water-quality guidance: Boyd (1982) ranges as cited in pond-culture literature
   ([SciELO](https://scielo.br/j/bjb/a/cmKqrbqsf9p68MhYbztndvb/abstract/?lang=pt));
   ICAR Indian Journal of Fisheries, pond water quality
@@ -224,6 +268,13 @@ report is written to `ml/models/disease_report.json`.
   - Backup: `scripts/backup.sh` (copies the SQLite file, `pg_dump` for PostgreSQL).
 
 All 33 backend tests pass; `npm run build` passes.
+
+- **Dashboard wired to fish tracking (20 Nov 2026, merged after the above).** The opencode commits
+  added login to the *old* water-only dashboard, so the new tank and fish pages were unreachable.
+  `App.tsx` now routes `#/tank/<id>` (water check, tank drawing with every fish, fish cards),
+  `#/fish/<id>` (fish profile: route replay, favourite spots, hourly activity, health findings,
+  staff notes) and `#/download` (water CSV + fish-positions CSV). Login moved to a header button;
+  viewing needs no login. Duplicate `HourBars` from the merge removed.
 
 ### Left
 
