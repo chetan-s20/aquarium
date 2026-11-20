@@ -95,3 +95,18 @@ def test_resting_fish_stays_visible_with_background_photo():
     for _ in range(300):  # 30 s motionless on the bottom
         seen = t.update(still)
     assert seen and seen["1"]["y"] > 0.75
+
+
+# ---- benchmark scoring (benchmark_tracker.py), offline
+
+def test_benchmark_scores_perfect_and_swapped_tracks():
+    from benchmark_tracker import score
+    frames = 20
+    gt = {f: [(1, 100 + f, 50, 40), (2, 300 - f, 50, 40)] for f in range(1, frames + 1)}
+    perfect = {f: {"a": (100 + f, 52), "b": (300 - f, 48)} for f in range(1, frames + 1)}
+    r = score(gt, perfect, frames)
+    assert r["idf1"] == 1.0 and r["num_switches"] == 0 and r["recall"] == 1.0
+    # halfway through, the tracker swaps which id is on which fish
+    swapped = {f: (perfect[f] if f <= 10 else {"a": perfect[f]["b"], "b": perfect[f]["a"]}) for f in range(1, frames + 1)}
+    r = score(gt, swapped, frames)
+    assert r["num_switches"] == 2 and r["idf1"] < 0.6 and r["recall"] == 1.0

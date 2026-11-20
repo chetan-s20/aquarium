@@ -146,6 +146,20 @@ through the day, how it behaved and whether it looks healthy, explained for non-
   reliable sign of stress or disease. Flags: much less active, resting on the bottom, staying at the
   surface (possible low oxygen or gill trouble), keeping apart from the group, and not seen for 2 hours.
 
+**Measured on real fish (20 Nov 2026).** `ml/benchmark_tracker.py` runs the tracker on the
+front camera of 3D-ZeF20 ZebraFish-02 (5 zebrafish, 900 frames at 60 fps, fish overlap in ~38% of
+labels) and scores it with py-motmetrics:
+
+| IDF1 (keeps one id per fish) | ID switches | Recall (fish found) | Precision (detections that are fish) |
+|---|---|---|---|
+| 58% | 12 in 15 s | 69% | ~100% |
+
+Almost every detection is a real fish; the losses come from overlaps, where two touching fish
+form one blob, one fish goes unseen, and ids can swap when they separate. That is the case to
+improve first: a trained detector (YOLO) that separates touching fish, or TRex / idtracker.ai.
+Re-run the benchmark after every tracker change. 3D-ZeF20 is CC BY-NC-SA 3.0, so use it only
+for internal testing.
+
 **Limits and next steps**
 
 - Identity can swap when two similar fish cross, and two touching fish show up as one blob. For

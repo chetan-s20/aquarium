@@ -10,6 +10,7 @@ Everything here uses OpenCV. Install with `python -m pip install -r ml/requireme
 | `download_dataset.py` | Downloads the Kaggle fish-disease images with `kagglehub.dataset_download()` |
 | `train_disease_classifier.py` | Trains OpenCV features + SVM; writes `models/disease_svm.joblib` and `models/disease_report.json` |
 | `predict_disease.py` | Ranks the likely conditions for one or more photos |
+| `benchmark_tracker.py` | Scores `track_fish.py` on the 3D-ZeF20 zebrafish benchmark (IDF1, id switches) with py-motmetrics. Data is CC BY-NC-SA 3.0: internal testing only |
 | `test_ml.py` | Self-checks on synthetic frames: `python -m pytest ml` |
 
 ## Results (19 Nov 2026)

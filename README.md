@@ -142,6 +142,10 @@ Treat it as a hint to inspect a fish, not a diagnosis. The path to a usable mode
 ```powershell
 cd backend; python -m pytest -q     # API, alerts, simulator, import, export, fish behaviour + health
 cd ..; python -m pytest -q ml       # OpenCV tracker, activity meter and features
+
+# Score the fish tracker on real zebrafish with hand-labelled identities (3D-ZeF20, front camera).
+# Downloads ~0.5 GB of one sequence into data/zef/. Data is CC BY-NC-SA: internal testing only.
+python ml/benchmark_tracker.py --seq ZebraFish-02
 cd frontend; npm run build          # type-check and build
 ```
 
