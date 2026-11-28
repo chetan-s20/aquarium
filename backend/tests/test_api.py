@@ -17,7 +17,23 @@ def _post(client, sensor_id, value, minutes_ago, **extra):
 def test_sensors_have_no_tds_and_include_dissolved_oxygen(client):
     metrics = {s["metric"] for s in client.get("/tanks/tank-a/sensors").json()}
     assert "tds" not in metrics
-    assert {"dissolved_oxygen", "temperature", "ph", "turbidity", "fish_activity"} <= metrics
+    assert {"dissolved_oxygen", "temperature", "ph", "turbidity", "ammonium", "fish_activity"} <= metrics
+
+
+def test_high_ammonium_raises_critical_alert(client):
+    sid = "tank-b-ammonium"
+    _post(client, sid, 0.2, 700)  # normal: closes anything the simulation left open
+    _post(client, sid, 1.4, 690)  # above the 1.0 mg/L critical limit
+    alerts = client.get("/alerts", params={"tank_id": "tank-b", "limit": 500}).json()
+    [a] = [a for a in alerts if a["sensor_id"] == sid and a["resolved_at"] is None]
+    assert (a["metric"], a["severity"]) == ("ammonium", "critical")
+    _post(client, sid, 0.2, 680)
+
+
+def test_forecast_endpoint(client):
+    body = client.get("/tanks/tank-a/forecast").json()
+    assert set(body) == {"dawn_at", "dissolved_oxygen"}
+    assert client.get("/tanks/no-such-tank/forecast").status_code == 404
 
 
 def test_write_endpoints_need_keys(client):

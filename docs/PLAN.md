@@ -1,4 +1,4 @@
-# Pond monitor: project plan
+# FISHUT: project plan
 
 Status as of 19 Nov 2026. This replaces `docs/phase1.md`.
 
@@ -150,20 +150,24 @@ through the day, how it behaved and whether it looks healthy, explained for non-
 front camera of 3D-ZeF20 ZebraFish-02 (5 zebrafish, 900 frames at 60 fps, fish overlap in ~38% of
 labels) and scores it with py-motmetrics:
 
-| IDF1 (keeps one id per fish) | ID switches | Recall (fish found) | Precision (detections that are fish) |
-|---|---|---|---|
-| 58% | 12 in 15 s | 69% | ~100% |
+| Detector | IDF1 (keeps one id per fish) | ID switches | Recall (fish found) | Precision (detections that are fish) |
+|---|---|---|---|---|
+| OpenCV background subtraction (20 Nov) | 58% | 12 in 15 s | 69% | ~100% |
+| YOLO11n, trained on ZebraFish-01/03/04 (28 Nov) | **76%** | 15 in 15 s | **93%** | 99% |
 
-Almost every detection is a real fish; the losses come from overlaps, where two touching fish
-form one blob, one fish goes unseen, and ids can swap when they separate. That is the case to
-improve first: a trained detector (YOLO) that separates touching fish, or TRex / idtracker.ai.
-Re-run the benchmark after every tracker change. 3D-ZeF20 is CC BY-NC-SA 3.0, so use it only
-for internal testing.
+With background subtraction almost every detection is a real fish, but two touching fish form one
+blob, so one fish goes unseen. A trained detector fixes exactly that: `ml/train_fish_detector.py`
+trains YOLO11n (6 epochs, about an hour on a 4-core CPU) and `track_fish.py --yolo` /
+`benchmark_tracker.py --yolo` use it. Misses fall from 1,400 to 299 and all 5 fish are mostly
+tracked (was 2). Id switches rise slightly (12 to 15) because overlapping fish are now both seen.
+Re-run the benchmark after every tracker change. 3D-ZeF20 is CC BY-NC-SA 3.0, so the data and the
+weights trained on it are for internal testing only.
 
 **Limits and next steps**
 
-- Identity can swap when two similar fish cross, and two touching fish show up as one blob. For
-  dense tanks, add a trained detector (YOLO) and/or use TRex / idtracker.ai.
+- Identity can still swap when two similar fish cross. For identity across a whole day, use TRex /
+  idtracker.ai. A YOLO detector for the farm needs boxes drawn on the farm's own video (zebrafish in
+  a lab tank are not carp in a farm tank).
 - One side camera can't see depth from the glass, so a fish hidden behind another counts as not seen.
 - Activity limits are relative. Once real data exists, add absolute baselines per species.
 - Storage: 12 fish at 5 s is about 200k rows per tank-day. Use PostgreSQL and a retention policy
@@ -187,20 +191,29 @@ filenames, so the adapter can't load the images. `ml/download_dataset.py` uses
   gives a meaningless 100%.
 - Train has 3 exact duplicates, and 1 image is filed under two different diseases.
 
-**Current model (baseline):** OpenCV features (CLAHE lighting correction, HSV colour histograms,
-HOG shape and texture, edge density) fed into an RBF support vector machine. On a de-duplicated,
-stratified 20% hold-out it scores **53% accuracy across 7 classes** (random guessing gives 14%).
-That is useful only as an "inspect this fish" hint. It is **not** a diagnosis. The full per-class
-report is written to `ml/models/disease_report.json`.
+- Train also holds near-copies of the same photo (resized, mirrored, rotated). With a random split,
+  11% of test images had a near-copy in training. `ml/disease_data.py` groups near-copies by
+  perceptual hash and keeps each group on one side of the split (details in `docs/DATASETS.md`).
 
-**How to make it good (Phase 4):**
+**Models compared (28 Nov 2026)** on one shared test set of 348 photos that never appear in training
+(random guessing: 14%):
 
-1. Transfer learning (EfficientNet or MobileNet via torchvision), keeping OpenCV for preprocessing.
-   Typically this gives a large jump on small image sets. PyTorch with CUDA is already on the dev
-   machine.
-2. Collect the farm's own photos, labelled by a fish health expert, using the `media_assets` and
-   `labels` tables. A web-scraped dataset won't match the farm's camera, lighting or species.
-3. Report per-class recall. Missing a sick fish costs more than a false alarm.
+| Model | Test accuracy |
+|---|---|
+| CNN: MobileNetV3 (ImageNet), fine-tuned; OpenCV CLAHE preprocessing | **92.8%** |
+| Random Forest on OpenCV features (HSV colour histograms, HOG, edge density) | 74.4% |
+| Logistic Regression on the same features | 46.0% |
+| RBF SVM on the same features (the old baseline) | 43.4% |
+
+The CNN called 10 of 298 sick fish (3.4%) healthy; its weakest class is parasitic disease (86%
+recall). It trains in about 30 minutes on a 4-core CPU (`ml/train_disease_cnn.py`, Docker image
+`ml/Dockerfile`). Reports: `ml/models/disease_cnn_report.json`, `ml/models/disease_report.json`.
+
+**What is still needed (Phase 4):** these are web photos, so the numbers rank the methods but do not
+predict accuracy on the farm. Collect the farm's own photos, labelled by a fish-health expert, using
+the `media_assets` and `labels` tables, then fine-tune the CNN on them and check per-class recall
+(target ≥ 80%). Missing a sick fish costs more than a false alarm. Until then any prediction is an
+"inspect this fish" hint, **not** a diagnosis.
 
 ## 7. Roadmap
 
@@ -262,9 +275,22 @@ report is written to `ml/models/disease_report.json`.
   a proposal (`low_warning` = the activity level typically reached during low-DO events) only when
   at least 5 such events have activity. Tests: `tests/test_activity_limits.py` (3).
 
-- **Phase 5 — dawn DO forecast.** `dawn_do_forecast` (`backend/app/services/forecast.py`) fits DO
-  vs local hour over the last readings before the next local dawn (farm offset, hour 4.0) and
-  extrapolates. Tests: `tests/test_forecast.py` (3).
+- **Phase 5 — dawn DO forecast.** `dawn_do_forecast` (`backend/app/services/forecast.py`) uses
+  persistence + anomaly: last night's dawn DO, shifted by how much DO now differs from the same time
+  yesterday (same 30-min trailing window for each lookup). It replaced a straight-line fit of DO
+  against hour of day, which forecast a *high* dawn value every evening (the fit window was centred on
+  the afternoon peak) and broke across midnight. `GET /tanks/{id}/forecast` serves it; the dashboard
+  shows it only as a heads-up when it is below the warning limit, never as reassurance, until it is
+  validated on real nights. Tests: `tests/test_forecast.py` (3, synthetic daily curves).
+
+- **Low-oxygen early warning (ML, 28 Nov 2026).** `ml/train_water_model.py` answers "will oxygen fall
+  below 5 mg/L in the next 3 hours, while it is still safe now?" from oxygen, temperature, pH and
+  their recent change. Trained on 14 years of a calibrated USGS lake monitor (`ml/fetch_usgs.py`; the
+  two public fish-pond datasets failed basic checks, see `docs/DATASETS.md`) and tested on 2022–2025:
+  Logistic Regression warns before 92% of crash hours (43% of its alarms real), against 40% for a
+  plain "oxygen below 5.3 now" cut-off; Random Forest 53% / 65%. Next: retrain on FISHUT's own probes
+  once they stream (Phase 3), then compare it with the dawn forecast as the trigger for the
+  "Tonight" warning.
 
 - **Phase 6 — login/roles, audit, retention, backup.**
   - Login/roles: `users` table + migration `ea191d344f70`; `app/auth.py` (pbkdf2 password hashing,

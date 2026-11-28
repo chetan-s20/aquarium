@@ -80,7 +80,7 @@ export default function App() {
             <path d="M16 3c5 7 9 11.5 9 16.5a9 9 0 0 1-18 0C7 14.5 11 10 16 3z" fill="var(--line)" />
             <path d="M11 20.5c1.6 1.4 3.2 2.1 5 2.1s3.4-.7 5-2.1" fill="none" stroke="var(--paper)" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-          <h1>Fish farm monitor</h1>
+          <h1>FISHUT</h1>
         </a>
 
         <nav className="tanks" aria-label="Tanks">

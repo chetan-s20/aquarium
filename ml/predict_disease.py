@@ -10,7 +10,7 @@ import joblib
 sys.path.insert(0, str(Path(__file__).parent))
 from vision import FEATURE_VERSION, image_features, load_image  # noqa: E402
 
-MODEL = Path(__file__).parent / "models" / "disease_svm.joblib"
+MODEL = Path(__file__).parent / "models" / "disease_model.joblib"  # best of SVM / Random Forest / LogReg
 
 
 def predict(paths: list[str], top: int = 3) -> list[dict]:

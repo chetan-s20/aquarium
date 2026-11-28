@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     app_env: str = "development"
-    app_name: str = "aquarium-monitor"
+    app_name: str = "FISHUT"
     database_url: str = "sqlite:///./aquarium.db"
     simulation_mode: bool = True
     # Farm local time vs UTC (India = 5.5). Only used to put the simulated dawn at local dawn.
@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     retention_days: int = 0
     # A gateway posts readings every 1–5 min (Phase 3); 10 min of silence is off-line.
     device_offline_minutes: int = 10
+    # Disease photo checker (ml/disease_service.py), e.g. http://disease:8100; unset = feature off.
+    disease_url: str = ""
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     @field_validator("cors_origins", mode="before")

@@ -124,6 +124,7 @@ export function waterVerdict(latest: Record<string, number | undefined>, limits:
     { metric: "temperature", low: ["Water is too cold", "Check the heater, or cover the tank at night."], high: ["Water is too warm", "Shade the tank and add aeration: warm water holds less oxygen."] },
     { metric: "ph", low: ["Water is too acidic", "Do a partial water change and check the buffer (lime)."], high: ["Water is too alkaline", "Do a partial water change and check for algae bloom."] },
     { metric: "turbidity", low: ["Water is very clear", "No action needed."], high: ["Water is very cloudy", "Check the filter, cut feeding a little and consider a water change."] },
+    { metric: "ammonium", low: ["Ammonia is very low", "No action needed."], high: ["Ammonia is high", "Stop feeding for a day, do a partial water change and add aeration. Ammonia is more toxic in warm, high-pH water."] },
   ];
   let worst: Verdict | null = null;
   for (const c of checks) {

@@ -34,9 +34,9 @@ def load_image(path: str | Path) -> np.ndarray:
     return img
 
 
-def preprocess(img: np.ndarray) -> np.ndarray:
+def preprocess(img: np.ndarray, size: int = IMAGE_SIZE) -> np.ndarray:
     """Resize and even out lighting (CLAHE on L channel): farm photos vary a lot in exposure."""
-    img = cv2.resize(img, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     lab[..., 0] = _CLAHE.apply(lab[..., 0])
     return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)

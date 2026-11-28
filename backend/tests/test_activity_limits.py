@@ -7,8 +7,10 @@ from app.services.activity_limits import derive_activity_limits
 
 def _setup(db, tank_id):
     db.add(Tank(id=tank_id, name=tank_id.replace("_", " ").title()))
+    db.flush()  # PostgreSQL checks foreign keys row by row: parents first
     db.add(Device(id=f"syn-{tank_id}", tank_id=tank_id, name=f"{tank_id} cam",
                   device_type="camera", status="simulated"))
+    db.flush()
     for metric, unit in (("dissolved_oxygen", "mg/L"), ("fish_activity", "%")):
         db.add(Sensor(id=f"syn-{tank_id}-{metric}", device_id=f"syn-{tank_id}", tank_id=tank_id,
                       metric=metric, unit=unit, physical_min=0, physical_max=100))

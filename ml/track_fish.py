@@ -36,9 +36,24 @@ import supervision as sv
 from trackers import ByteTrackTracker
 
 
+def yolo_detector(weights: str, conf: float = 0.25):
+    """Detector from trained YOLO weights: frame -> (xyxy boxes, confidences). See train_fish_detector.py."""
+    from ultralytics import YOLO
+
+    model = YOLO(weights)
+
+    def detect(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        boxes = model.predict(frame, conf=conf, verbose=False)[0].boxes
+        return boxes.xyxy.cpu().numpy().astype(np.float32), boxes.conf.cpu().numpy().astype(np.float32)
+
+    return detect
+
+
 class FishTracker:
     def __init__(self, fps: float, max_fish: int = 50, min_area: int = 40, background: np.ndarray | None = None,
-                 relink_seconds: float = 30.0, relink_distance: float = 0.25):
+                 relink_seconds: float = 30.0, relink_distance: float = 0.25, detector=None):
+        """detector: optional frame -> (xyxy, confidence), e.g. yolo_detector(); replaces background subtraction."""
+        self.detector = detector
         self.fps = fps
         self.max_fish = max_fish
         self.min_area = min_area
@@ -86,14 +101,19 @@ class FishTracker:
         """Returns the fish seen in this frame: key -> {x, y, size, color}."""
         self.frame_no += 1
         h, w = frame.shape[:2]
-        mask = self._mask(frame)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        boxes = [cv2.boundingRect(c) for c in contours if cv2.contourArea(c) >= self.min_area]
-        if not boxes:
+        if self.detector is not None:
+            mask = None
+            xyxy, conf = self.detector(frame)
+        else:
+            mask = self._mask(frame)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            boxes = [cv2.boundingRect(c) for c in contours if cv2.contourArea(c) >= self.min_area]
+            xyxy = np.array([[x, y, x + bw, y + bh] for x, y, bw, bh in boxes], dtype=np.float32).reshape(-1, 4)
+            conf = np.ones(len(xyxy), np.float32)
+        if not len(xyxy):
             self.bytetrack.update(sv.Detections.empty())
             return {}
-        xyxy = np.array([[x, y, x + bw, y + bh] for x, y, bw, bh in boxes], dtype=np.float32)
-        dets = sv.Detections(xyxy=xyxy, confidence=np.ones(len(boxes), np.float32), class_id=np.zeros(len(boxes), int))
+        dets = sv.Detections(xyxy=xyxy, confidence=conf, class_id=np.zeros(len(xyxy), int))
         tracked = self.bytetrack.update(dets)
         seen = {}
         for (x1, y1, x2, y2), tid in zip(tracked.xyxy, tracked.tracker_id):
@@ -102,7 +122,7 @@ class FishTracker:
             cx, cy = (x1 + x2) / 2 / w, (y1 + y2) / 2 / h
             key = self._fish_for(int(tid), cx, cy)
             roi = (slice(int(y1), int(y2) + 1), slice(int(x1), int(x2) + 1))
-            b, g, r = cv2.mean(frame[roi], mask=mask[roi])[:3]
+            b, g, r = cv2.mean(frame[roi], mask=None if mask is None else mask[roi])[:3]
             info = {"x": round(float(cx), 4), "y": round(float(cy), 4), "size": round(float(max(x2 - x1, y2 - y1) / w), 4),
                     "color": f"#{int(r):02x}{int(g):02x}{int(b):02x}", "frame": self.frame_no}
             self.last[key] = info
@@ -131,6 +151,7 @@ def main():
     ap.add_argument("--background", type=Path, help="photo of the EMPTY tank from the same camera (recommended)")
     ap.add_argument("--max-fish", type=int, default=50, help="how many fish are in the tank")
     ap.add_argument("--min-area", type=int, default=40, help="smallest blob (pixels) that counts as a fish")
+    ap.add_argument("--yolo", help="trained YOLO weights: detect fish with YOLO instead of background subtraction")
     ap.add_argument("--sample-every", type=float, default=5.0, help="seconds between stored positions")
     ap.add_argument("--start", help="ISO UTC time the video starts (files; default: file's modified time)")
     ap.add_argument("--csv", type=Path, help="also write positions here")
@@ -161,7 +182,8 @@ def main():
             sys.exit(f"cannot read background image {args.background}")
         background = crop(background)
 
-    tracker = FishTracker(fps, args.max_fish, args.min_area, background)
+    tracker = FishTracker(fps, args.max_fish, args.min_area, background,
+                          detector=yolo_detector(args.yolo) if args.yolo else None)
     writer = None
     if args.csv:
         f = args.csv.open("w", newline="")

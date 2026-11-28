@@ -78,10 +78,11 @@ def remote_zip(url: str) -> zipfile.ZipFile:
     return zipfile.ZipFile(io.BufferedReader(HttpFile(url), buffer_size=1 << 20))
 
 
-def fetch_frames(seq: str, n_frames: int) -> Path:
+def fetch_frames(seq: str, frame_numbers) -> Path:
+    """Download these front-camera frames (1-based numbers) of a sequence; returns their folder."""
     out = ROOT / seq / "imgF"
     out.mkdir(parents=True, exist_ok=True)
-    wanted = [f"{i:06d}.jpg" for i in range(1, n_frames + 1)]
+    wanted = [f"{i:06d}.jpg" for i in frame_numbers]
     missing = [w for w in wanted if not (out / w).exists()]
     if not missing:
         return out
@@ -103,23 +104,29 @@ def fetch_frames(seq: str, n_frames: int) -> Path:
     return out
 
 
-def load_gt(seq: str, n_frames: int) -> dict[int, list[tuple[int, float, float, float]]]:
-    """frame -> [(fish id, box centre x, box centre y, match radius)] from the FRONT camera boxes."""
+def load_boxes(seq: str) -> dict[int, list[tuple[int, float, float, float, float]]]:
+    """frame -> [(fish id, left, top, width, height)]: the FRONT camera boxes, full-size pixels."""
     labels = ROOT / "labels.zip"
     if not labels.exists():
         ROOT.mkdir(parents=True, exist_ok=True)
         urllib.request.urlretrieve(LABELS_URL, labels)
     text = zipfile.ZipFile(labels).read(f"3DZeF20Lables/train/{seq}/gt/gt.txt").decode()
-    gt: dict[int, list] = {}
+    boxes: dict[int, list] = {}
     for line in text.splitlines():
         if not line.strip():
             continue
         v = [float(x) for x in line.split(",")]
         frame, fid, left, top, w, h = int(v[0]), int(v[1]), v[14], v[15], v[16], v[17]
-        if frame <= n_frames and w > 0 and h > 0:
-            # a detection counts as this fish if its centre is within half the box diagonal
-            gt.setdefault(frame, []).append((fid, left + w / 2, top + h / 2, 0.5 * math.hypot(w, h)))
-    return gt
+        if w > 0 and h > 0:
+            boxes.setdefault(frame, []).append((fid, left, top, w, h))
+    return boxes
+
+
+def load_gt(seq: str, n_frames: int) -> dict[int, list[tuple[int, float, float, float]]]:
+    """frame -> [(fish id, box centre x, box centre y, match radius)] for the first n_frames."""
+    # a detection counts as this fish if its centre is within half the box diagonal
+    return {f: [(fid, l + w / 2, t + h / 2, 0.5 * math.hypot(w, h)) for fid, l, t, w, h in rows]
+            for f, rows in load_boxes(seq).items() if f <= n_frames}
 
 
 def median_background(frames: list[Path], scale: float) -> np.ndarray:
@@ -153,21 +160,25 @@ def score(gt: dict, hyp: dict, n_frames: int) -> dict:
             for k in names}
 
 
-def run(seq: str, n_frames: int, scale: float, min_area: int) -> dict:
+def run(seq: str, n_frames: int, scale: float, min_area: int, yolo: str | None = None) -> dict:
     gt = load_gt(seq, n_frames)
     n_frames = min(n_frames, max(gt))
-    frames = sorted(fetch_frames(seq, n_frames).glob("*.jpg"))[:n_frames]
+    folder = fetch_frames(seq, range(1, n_frames + 1))
+    frames = [folder / f"{i:06d}.jpg" for i in range(1, n_frames + 1)]
     n_fish = len({fid for rows in gt.values() for fid, *_ in rows})
-    bg = median_background(frames, scale)
-    tracker = FishTracker(fps=FPS, max_fish=n_fish, min_area=min_area, background=bg)
+    if yolo:
+        from track_fish import yolo_detector
+        tracker = FishTracker(fps=FPS, max_fish=n_fish, detector=yolo_detector(yolo))
+    else:
+        tracker = FishTracker(fps=FPS, max_fish=n_fish, min_area=min_area, background=median_background(frames, scale))
     hyp: dict[int, dict] = {}
     H, W = cv2.imread(str(frames[0])).shape[:2]
     for i, p in enumerate(frames, start=1):
         img = cv2.resize(cv2.imread(str(p)), None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         seen = tracker.update(img)
         hyp[i] = {k: (v["x"] * W, v["y"] * H) for k, v in seen.items()}  # back to full-size pixels
-    result = {"sequence": seq, "frames": n_frames, "fish": n_fish, "scale": scale, "min_area": min_area,
-              **score(gt, hyp, n_frames)}
+    result = {"sequence": seq, "detector": f"yolo:{Path(yolo).name}" if yolo else "opencv-background",
+              "frames": n_frames, "fish": n_fish, "scale": scale, "min_area": min_area, **score(gt, hyp, n_frames)}
     return result
 
 
@@ -178,10 +189,11 @@ def main():
     ap.add_argument("--frames", type=int, default=900, help="how many frames from the start (60 fps)")
     ap.add_argument("--scale", type=float, default=0.5, help="resize frames before tracking (speed)")
     ap.add_argument("--min-area", type=int, default=300, help="smallest blob (pixels, after scaling) that counts as a fish")
+    ap.add_argument("--yolo", help="trained YOLO weights (train_fish_detector.py) instead of background subtraction")
     args = ap.parse_args()
-    r = run(args.seq, args.frames, args.scale, args.min_area)
+    r = run(args.seq, args.frames, args.scale, args.min_area, args.yolo)
     print(json.dumps(r, indent=2))
-    (ROOT / f"report-{args.seq}.json").write_text(json.dumps(r, indent=2))
+    (ROOT / f"report-{args.seq}{'-yolo' if args.yolo else ''}.json").write_text(json.dumps(r, indent=2))
     print(f"\nIDF1 {r['idf1']:.0%} (keeping one id per fish) | {r['num_switches']} id switches | "
           f"found {r['recall']:.0%} of fish positions | {r['precision']:.0%} of detections were real fish")
 

@@ -30,7 +30,7 @@ TANKS = [
 ]
 
 # How far a value must recover past the warning limit before an alert closes (stops flapping).
-HYSTERESIS = {"dissolved_oxygen": 0.3, "temperature": 0.5, "ph": 0.1, "turbidity": 5.0}
+HYSTERESIS = {"dissolved_oxygen": 0.3, "temperature": 0.5, "ph": 0.1, "turbidity": 5.0, "ammonium": 0.05}
 
 
 def seed(db: Session, hours: int = 168, fish_hours: int = 48) -> int:
@@ -50,10 +50,12 @@ def seed(db: Session, hours: int = 168, fish_hours: int = 48) -> int:
     for t in TANKS:
         if not db.get(Tank, t["id"]):
             db.add(Tank(**t))
+            db.flush()  # PostgreSQL enforces foreign keys: the tank row must exist before its devices
         for kind, dtype in (("water", "water_probe"), ("camera", "camera")):
             did = f"{t['id']}-{kind}"
             if not db.get(Device, did):
                 db.add(Device(id=did, tank_id=t["id"], name=f"{t['name']} {kind}", device_type=dtype, status="simulated"))
+        db.flush()  # devices before the sensors that reference them
         for metric, spec in METRICS.items():
             sid = f"{t['id']}-{metric}"
             if not db.get(Sensor, sid):

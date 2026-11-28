@@ -1,6 +1,6 @@
 """The metrics this system records. One place, used by seed, simulator and tests.
 
-Water sensors: dissolved oxygen (primary), temperature, pH, turbidity. TDS is not used.
+Water sensors: dissolved oxygen (primary), temperature, pH, turbidity, ammonium. TDS is not used.
 Camera metrics come from ml/fish_activity.py (OpenCV), posted like any sensor.
 
 Thresholds are (low_critical, low_warning, high_warning, high_critical).
@@ -28,6 +28,12 @@ METRICS: dict[str, dict] = {
         "unit": "NTU", "physical": (0.0, 1000.0), "source": "water",
         "thresholds": (None, None, 50.0, 100.0),
         "reference": "Placeholder: no species-specific NTU limit found; tune per pond",
+    },
+    "ammonium": {
+        "unit": "mg/L", "physical": (0.0, 50.0), "source": "water",
+        "thresholds": (None, None, 0.5, 1.0),
+        "reference": "Total ammonia (ammonium ion probe). Placeholder pond guidance: look above 0.5 mg/L; "
+                     "the toxic NH3 share rises with pH and temperature (Emerson 1975), so confirm per species",
     },
     "fish_activity": {
         "unit": "% motion", "physical": (0.0, 100.0), "source": "camera",

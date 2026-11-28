@@ -31,6 +31,8 @@ def _values(t: datetime, rng: random.Random, day_offset: float, turbidity: float
         "temperature": round(29.0 + 1.6 * math.sin(2 * math.pi * (hour - 9) / 24) + rng.gauss(0, 0.1), 2),
         "ph": round(7.7 + 0.45 * cycle + rng.gauss(0, 0.04), 2),
         "turbidity": round(turbidity, 1),
+        # algae take up ammonia in daylight, so it is lowest in the afternoon and climbs overnight
+        "ammonium": round(max(0.02, 0.28 - 0.12 * cycle - 0.08 * day_offset + rng.gauss(0, 0.02)), 2),
         "fish_activity": round(max(0.2, 1.2 + 2.3 * daylight - 0.4 * hypoxia + rng.gauss(0, 0.2)), 2),
         "surface_activity": round(min(95.0, max(2.0, 12 + 14 * hypoxia + rng.gauss(0, 2))), 1),
     }

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,7 @@ from app.db import get_db
 from app.models import Sensor, Tank, Threshold, User
 from app.schemas import SensorRead, TankCreate, TankRead, ThresholdRead
 from app.services.audit import audit
+from app.services.forecast import dawn_do_forecast, next_dawn
 
 router = APIRouter(prefix="/tanks", tags=["tanks"])
 
@@ -53,3 +56,12 @@ def list_thresholds(tank_id: str, db: Session = Depends(get_db)):
     for t in sorted(rows, key=lambda t: t.tank_id is not None):
         effective[t.metric] = t
     return list(effective.values())
+
+
+@router.get("/{tank_id}/forecast")
+def dawn_forecast(tank_id: str, db: Session = Depends(get_db)):
+    """Tonight's pre-dawn oxygen forecast; null without a day of readings. Not yet validated on real nights."""
+    _tank(db, tank_id)
+    now = datetime.now(timezone.utc)
+    f = dawn_do_forecast(db, tank_id, now)
+    return {"dawn_at": next_dawn(now), "dissolved_oxygen": None if f is None else round(f, 2)}

@@ -6,6 +6,7 @@ import { DayPicker, FishIcon, FishStatusMark, FISH_STATUS, lastDays, StatusMark,
 
 const REFRESH_MS = 60_000;
 const WATER = METRICS.filter((m) => m.group === "water");
+const CAMERA = METRICS.filter((m) => m.group === "camera");
 
 export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (e: string | null) => void; refreshKey: number }) {
   const days = useMemo(() => lastDays(3), []);
@@ -14,21 +15,24 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
   const [limits, setLimits] = useState<Threshold[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [report, setReport] = useState<FishReport | null>(null);
+  const [dawnDo, setDawnDo] = useState<number | null>(null);
   const [chartMetric, setChartMetric] = useState<MetricKey>("dissolved_oxygen");
 
   const load = useCallback(async () => {
     const start = new Date(Date.now() - 24 * 3600_000).toISOString();
     try {
-      const [r, t, a, f] = await Promise.all([
+      const [r, t, a, f, fc] = await Promise.all([
         api<Reading[]>(`/readings?tank_id=${tank.id}&start=${encodeURIComponent(start)}&limit=20000`),
         api<Threshold[]>(`/tanks/${tank.id}/thresholds`),
         api<Alert[]>(`/alerts?tank_id=${tank.id}&limit=50`),
         api<FishReport>(`/tanks/${tank.id}/fish?day=${day}`),
+        api<{ dissolved_oxygen: number | null }>(`/tanks/${tank.id}/forecast`),
       ]);
       setReadings(r);
       setLimits(t);
       setAlerts(a);
       setReport(f);
+      setDawnDo(fc.dissolved_oxygen);
       onError(null);
     } catch (e) {
       onError(`Couldn't load ${tank.name}: ${(e as Error).message}`);
@@ -41,12 +45,15 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
     return () => clearInterval(id);
   }, [load, refreshKey]);
 
-  const points = useMemo(() => Object.fromEntries(WATER.map((m) => [m.key, series(readings, m.key)])), [readings]);
+  const points = useMemo(() => Object.fromEntries(METRICS.map((m) => [m.key, series(readings, m.key)])), [readings]);
   const latest = Object.fromEntries(WATER.map((m) => [m.key, latestValid(points[m.key] ?? [])?.v ?? undefined]));
   const limit = (k: string) => limits.find((t) => t.metric === k);
   const lastReading = readings.at(-1)?.observed_at;
   const verdict = waterVerdict(latest, limits, readings.length > 0);
   const active = alerts.filter((a) => a.status !== "resolved");
+  // Shown only as a heads-up when low: the forecast isn't validated on real nights, so it must never reassure.
+  const doLimit = limit("dissolved_oxygen");
+  const dawnTone = statusOf(dawnDo, doLimit);
 
   const fish = report?.fish ?? [];
   const inTank = fish.filter((f) => f.in_tank);
@@ -73,6 +80,13 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
           <p className="sub">{lastReading ? `Last reading ${ago(lastReading)}` : ""}</p>
         </div>
 
+        {(dawnTone === "warning" || dawnTone === "critical") && (
+          <p className={`forecast s-edge-${dawnTone}`}>
+            <StatusMark status={dawnTone} label="Tonight" /> Oxygen could fall to about {fmt(dawnDo, "dissolved_oxygen")} mg/L
+            before dawn (keep it above {doLimit?.low_warning} mg/L). Be ready to run the aerator early.
+          </p>
+        )}
+
         <div className="tiles">
           {WATER.map((m) => {
             const st = statusOf(latest[m.key], limit(m.key));
@@ -92,7 +106,7 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
         <div className="water-chart">
           <p className="chart-title">
             {metricInfo(chartMetric)?.label} over the last 24 hours
-            <small> · shaded bands are outside the safe range</small>
+            <small className="chart-note">shaded bands are outside the safe range</small>
           </p>
           <TrendChart points={points[chartMetric] ?? []} metric={chartMetric} threshold={limit(chartMetric)} height={190} />
         </div>
@@ -164,6 +178,18 @@ export function TankPage({ tank, onError, refreshKey }: { tank: Tank; onError: (
         <p className="hint scene-note">
           Where each fish was last seen. Click a fish to see its day. A <span className="badge inline b-check">!</span> marks fish that need attention.
         </p>
+
+        <div className="two camera-charts">
+          {CAMERA.map((m) => (
+            <div key={m.key}>
+              <p className="chart-title">
+                {m.label} over the last 24 hours
+                <small className="chart-note">{m.hint}</small>
+              </p>
+              <TrendChart points={points[m.key] ?? []} metric={m.key} height={140} />
+            </div>
+          ))}
+        </div>
 
         <ul className="fish-grid">
           {fish.map((f) => (

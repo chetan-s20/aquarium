@@ -1,11 +1,12 @@
-# Fish farm monitor
+# FISHUT
 
 Water-quality monitoring and **individual fish tracking** for fish farms. Water sensors and a tank camera
 report around the clock. Staff see each tank's water in plain words, every fish in the tank, and a profile
 for each fish: where it swam through the day, how active it was, and whether it behaves differently from
 its tankmates (a sign it may be unwell). Analysts can download all water readings and every fish position.
 
-The full problem statement, design, research and roadmap are in **[docs/PLAN.md](docs/PLAN.md)**.
+The full problem statement, design, research and roadmap are in **[docs/PLAN.md](docs/PLAN.md)**; every
+dataset used for training and testing (source, licence, split, known problems) is in **[docs/DATASETS.md](docs/DATASETS.md)**.
 
 ## What's in the repo
 
@@ -16,7 +17,7 @@ The full problem statement, design, research and roadmap are in **[docs/PLAN.md]
 | `ml/` | OpenCV + ByteTrack fish tracker, tank activity meter, fish-disease image classifier |
 | `docs/PLAN.md` | Plan, sources, roadmap |
 
-Measured: **dissolved oxygen**, temperature, pH, turbidity, plus camera-based fish activity and surface
+Measured: **dissolved oxygen**, temperature, pH, turbidity, ammonium, plus camera-based fish activity and surface
 activity. TDS is not used.
 
 ## Run it locally
@@ -115,27 +116,48 @@ The server fills in tank, metric and unit from the registered sensor. It also ma
 as invalid, rejects duplicates (409) and opens or resolves alerts. To bulk-load history, use
 `POST /imports/preview` and then `/imports/commit` while logged in as an operator (session cookie).
 
-## Camera and ML (`ml/`)
+**Over MQTT (ESP32 gateways).** `docker compose up` also starts a Mosquitto broker on port 1883 and
+`scripts/mqtt_bridge.py`, which stores each message through `POST /readings`. A device logs in with
+`MQTT_USER` / `MQTT_PASSWORD` and publishes one reading, or a JSON list of them, in the same JSON as
+above, with QoS 1, to `fishut/readings/<device>`. Nothing is lost if the API is down: the bridge
+acknowledges a message only after the API has stored it. To try it without hardware:
 
 ```powershell
-python -m pip install -r ml/requirements.txt
+docker compose run --rm --no-deps mqtt-bridge python scripts/fake_esp32.py --tank tank-a --every 60
+```
 
+## Camera and ML (`ml/`)
+
+Install with `python -m pip install -r ml/requirements.txt` plus CPU PyTorch, or use the Docker image
+(`docker build -t fishut-ml ml`; see [ml/README.md](ml/README.md)).
+
+```powershell
 # Fish behaviour from a fixed tank camera (OpenCV), posted to the dashboard:
 python ml/fish_activity.py --source 0 --tank tank-a --api http://127.0.0.1:8000
 python ml/fish_activity.py --source tank.mp4 --start 2026-11-19T05:00:00Z --csv activity.csv
 
-# Fish-disease classifier (downloads the Kaggle dataset automatically, no login needed):
-python ml/download_dataset.py
-python ml/train_disease_classifier.py
+# Fish-disease models (download the Kaggle images automatically, no login needed):
+python ml/train_disease_classifier.py   # SVM vs Random Forest vs Logistic Regression
+python ml/train_disease_cnn.py          # CNN (MobileNetV3), ~30 min on a 4-core CPU
 python ml/predict_disease.py photo.jpg
+
+# Early warning of low oxygen (3 h ahead), on real calibrated monitor data from USGS (public domain):
+python ml/fetch_usgs.py --site 421401121480900
+python ml/train_water_model.py --csv data/usgs/421401121480900.csv
+
+# YOLO fish detector, then score it against the OpenCV detector on unseen fish:
+python ml/train_fish_detector.py
+python ml/benchmark_tracker.py --seq ZebraFish-02 --yolo ml/models/fish_yolo.pt
 ```
 
-About the dataset: it is a folder of images, so it is loaded with `kagglehub.dataset_download()`, not
-the `PANDAS` adapter, which only reads table files. Every image in its official Test split is an exact
-copy of a Train image, so the training script scores the model on a de-duplicated hold-out instead.
-The current OpenCV + SVM baseline reaches **53% accuracy over 7 classes** (random guessing gives 14%).
-Treat it as a hint to inspect a fish, not a diagnosis. The path to a usable model is in
-[docs/PLAN.md §6](docs/PLAN.md#6-disease-model).
+The disease CNN scores **92.8% over 7 classes** (random guessing: 14%) on test photos that never
+appear in training; results for every model are in [ml/README.md](ml/README.md). These are web photos,
+so treat any prediction as a hint to inspect a fish, not a diagnosis
+([docs/PLAN.md §6](docs/PLAN.md#6-disease-model)).
+
+**Photo check on the dashboard.** With a trained CNN, `docker compose --profile ml up` also starts
+`ml/disease_service.py`. Logged-in staff can then take or upload a photo on a fish's page and see the
+three most likely conditions.
 
 ## Tests
 
@@ -160,6 +182,8 @@ cd frontend; npm run build          # type-check and build
 | `OPERATOR_PASSWORD` | `letmein` | Password of the seeded `operator` account |
 | `SECRET_KEY` | dev value | Signs operator session cookies |
 | `CORS_ORIGINS` | localhost:5173 | Comma-separated dashboard origins |
+| `MQTT_USER` / `MQTT_PASSWORD` | `fishut` / dev value | Broker login for devices and the bridge (docker compose) |
+| `DISEASE_URL` | empty (off) | Photo checker service (`ml/disease_service.py`); compose sets it |
 
 The frontend reads `VITE_API_BASE` and calls the API with the operator's session cookie, set on
 login (the seeded `operator` account, password from `OPERATOR_PASSWORD`). Anyone can view the
@@ -170,5 +194,7 @@ demo data. Devices keep using `X-Device-Key`.
 
 - Alert limits are general warm-water pond guidance (Boyd 1982 / ICAR). Confirm them for your species.
 - All demo readings are `source=simulator`. They are not measurements.
-- `docker compose up` starts PostgreSQL and the API (it runs migrations on start); the dashboard is run
-  separately.
+- `docker compose up` starts PostgreSQL, the API with the built dashboard (http://127.0.0.1:8000; it
+  runs migrations and the demo seed on start), the MQTT broker and the bridge.
+- Run the backend tests on PostgreSQL with `TEST_DATABASE_URL=postgresql+psycopg://...` pointing at an
+  empty database; SQLite does not enforce foreign keys, so it misses insert-order bugs.

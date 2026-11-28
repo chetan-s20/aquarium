@@ -3,7 +3,8 @@ import tempfile
 
 # Must run before `app` is imported: point the app at a throwaway database.
 _db = os.path.join(tempfile.mkdtemp(), "test.db")
-os.environ["DATABASE_URL"] = f"sqlite:///{_db}"
+# TEST_DATABASE_URL=postgresql+psycopg://... runs the suite on an empty PostgreSQL database instead.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", f"sqlite:///{_db}")
 os.environ["SIMULATION_MODE"] = "true"
 
 import pytest  # noqa: E402

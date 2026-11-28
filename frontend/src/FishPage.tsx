@@ -5,6 +5,8 @@ import { DayPicker, FishIcon, FishStatusMark, lastDays, TankScene } from "./ui";
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+type PhotoCheck = { predictions: { label: string; probability: number }[]; model: string };
+
 function compare(value: number, typical: number | undefined, more: string, less: string) {
   if (!typical) return "";
   const r = value / typical;
@@ -24,6 +26,23 @@ export function FishPage({ fishId, onError }: { fishId: string; onError: (e: str
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [saved, setSaved] = useState("");
+  const [photoCheck, setPhotoCheck] = useState<PhotoCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function checkPhoto(file: File) {
+    setChecking(true);
+    setPhotoCheck(null);
+    try {
+      const body = new FormData();
+      body.append("photo", file);
+      setPhotoCheck(await api<PhotoCheck>("/disease/check", { method: "POST", body }));
+      onError(null);
+    } catch (e) {
+      onError(`Couldn't check the photo: ${(e as Error).message}`);
+    } finally {
+      setChecking(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -123,6 +142,32 @@ export function FishPage({ fishId, onError }: { fishId: string; onError: (e: str
               <li key={fl.text} className={`flag st-edge-${fl.level}`}>
                 <strong>{fl.text}</strong>
                 <span>{fl.advice}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="panel" aria-labelledby="photo-h">
+        <h2 id="photo-h">Check a photo</h2>
+        <p className="lede">
+          Take a clear, close photo of {f.name} out of the water or against the glass. The model suggests what to look for.
+          It is not a diagnosis: it learned from web photos, not this farm's fish, so confirm with a fish-health expert.
+        </p>
+        <label className="btn file-pick">
+          {checking ? "Checking…" : "Take or choose a photo"}
+          <input
+            type="file" accept="image/*" capture="environment" disabled={checking}
+            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void checkPhoto(file); }}
+          />
+        </label>
+        {photoCheck && (
+          <ul className="likely" aria-label="Most likely conditions">
+            {photoCheck.predictions.map((p) => (
+              <li key={p.label}>
+                <span>{p.label}</span>
+                <span className="likely-bar" aria-hidden="true"><span style={{ width: `${p.probability * 100}%` }} /></span>
+                <span>{Math.round(p.probability * 100)}%</span>
               </li>
             ))}
           </ul>

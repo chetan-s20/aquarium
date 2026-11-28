@@ -5,6 +5,7 @@ export type MetricKey =
   | "temperature"
   | "ph"
   | "turbidity"
+  | "ammonium"
   | "fish_activity"
   | "surface_activity";
 
@@ -13,6 +14,7 @@ export const METRICS: { key: MetricKey; label: string; unit: string; digits: num
   { key: "temperature", label: "Temperature", unit: "°C", digits: 1, group: "water", hint: "Water temperature" },
   { key: "ph", label: "pH", unit: "", digits: 1, group: "water", hint: "How acidic the water is; 7 is neutral" },
   { key: "turbidity", label: "Cloudiness", unit: "NTU", digits: 0, group: "water", hint: "How cloudy the water is (turbidity)" },
+  { key: "ammonium", label: "Ammonia", unit: "mg/L", digits: 2, group: "water", hint: "Waste from fish and feed; more toxic in warm, high-pH water" },
   { key: "fish_activity", label: "Fish activity", unit: "% moving", digits: 1, group: "camera", hint: "Share of the camera view in motion" },
   { key: "surface_activity", label: "Surface activity", unit: "% at surface", digits: 0, group: "camera", hint: "High values can mean fish are gasping for air" },
 ];

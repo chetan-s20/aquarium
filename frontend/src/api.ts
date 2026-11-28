@@ -2,7 +2,8 @@
 export const API_BASE: string = import.meta.env.VITE_API_BASE ?? `http://${window.location.hostname}:8000`;
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // FormData (file uploads) sets its own multipart Content-Type
+  const headers: Record<string, string> = init?.body instanceof FormData ? {} : { "Content-Type": "application/json" };
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

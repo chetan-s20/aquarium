@@ -11,7 +11,9 @@ def test_retention_deletes_readings_older_than_retention_days(client, monkeypatc
     now = datetime.now(timezone.utc)
     with SessionLocal() as db:
         db.add(Tank(id="tank_rt", name="Tank RT"))
+        db.flush()  # PostgreSQL checks foreign keys row by row: parents first
         db.add(Device(id="syn-rt", tank_id="tank_rt", name="r", device_type="sensor", status="simulated"))
+        db.flush()
         db.add(Sensor(id="syn-rt-dissolved_oxygen", device_id="syn-rt", tank_id="tank_rt",
                       metric="dissolved_oxygen", unit="mg/L"))
         db.commit()
