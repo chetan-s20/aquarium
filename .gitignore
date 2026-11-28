@@ -11,7 +11,9 @@ frontend/dist/
 # Built frontend served by the backend in the deploy container
 backend/static/
 # Data / models
-data/
+data/*
+# the pond spreadsheet is kept as evidence for docs/DATASETS.md (CC BY 4.0, attributed in its README)
+!data/pond_iot/
 ml/models/
 *.csv
 # OS
