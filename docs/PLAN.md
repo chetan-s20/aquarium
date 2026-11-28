@@ -1,6 +1,8 @@
 # FISHUT: project plan
 
-Status as of 19 Nov 2026. This replaces `docs/phase1.md`.
+Status as of 28 Nov 2026: the software and the models are built and tested on simulated and public
+data; nothing is installed at the farm yet. What is done and what is left: §7 (roadmap) and §9
+(work log). This replaces `docs/phase1.md`.
 
 ## 1. The problem
 
@@ -26,10 +28,10 @@ separate model flags possible disease from fish photos.
 
 | User | Needs | Where in the product |
 |---|---|---|
-| Farm operator (on shift) | "Is any tank in trouble right now? What do I do?" | Dashboard: oxygen panel, alerts, "Mark as seen" |
-| Farm manager | Trends over days, which ponds dip at dawn, alert history | 7-day view, resolved alerts |
-| Analyst / employer staff | All raw data, joined across sensors, for behaviour analysis and model training | **Download data** panel / `GET /export/readings.csv` |
-| Device (probe gateway, camera PC) | A simple authenticated way to post readings | `POST /readings` with `X-Device-Key` |
+| Farm operator (on shift) | "Is any tank in trouble right now? What do I do?" | Tank page: water verdict in plain words, "Tonight" low-oxygen warning, alerts with "Mark as seen", fish needing a check; works on a phone |
+| Farm manager | Trends, which tanks dip at dawn, which fish are unwell | 24-hour charts, fish history for the last 3 days, fish profiles and staff notes; longer periods through **Download data** |
+| Analyst / employer staff | All raw data, joined across sensors, for behaviour analysis and model training | **Download data** panel / `GET /export/readings.csv`, `/export/fish-positions.csv` |
+| Device (probe gateway, camera PC) | A simple authenticated way to post readings | `POST /readings` with `X-Device-Key`, or MQTT (`fishut/readings/<device>`, broker login) |
 
 ## 3. Measurements
 
@@ -41,6 +43,7 @@ separate model flags possible disease from fish photos.
 | Temperature | °C | probe | Warmer water holds less oxygen; carp grow best at ~25–32 °C | outside 24–32 / outside 20–35 |
 | pH | pH | probe | Swings with algae photosynthesis; extremes stress fish | outside 6.5–8.5 / outside 6–9 |
 | Turbidity | NTU | probe | Plankton bloom or silt; affects light and oxygen production | above 50 / above 100 (**placeholder**) |
+| Ammonium (total ammonia) | mg/L | ion-selective probe | Waste from fish and feed; the toxic NH₃ share rises with pH and temperature | above 0.5 / above 1.0 (**placeholder**) |
 | Fish activity | % of frame moving | camera + OpenCV | Fish move less when stressed or sick | recorded, no alert yet |
 | Surface activity | % of motion in top 20% of frame | camera + OpenCV | Fish gasping at the surface is a classic low-oxygen sign | recorded, no alert yet |
 
@@ -56,17 +59,21 @@ set limits from that (Phase 4).
 ## 4. Architecture
 
 ```
- Pond probes ──► ESP32/RPi gateway ──┐
- (DO, temp, pH, NTU)                 │  HTTPS POST /readings  (X-Device-Key)
-                                     ▼
- Tank camera ──► PC running ──► FastAPI backend ──► PostgreSQL (SQLite in dev)
-                 ml/fish_activity.py   │  quality check → store → alert rules
-                 (OpenCV)              │
-                                       ├──► React dashboard (live, 60 s refresh)
-                                       └──► CSV export for analysts (long / wide)
+ Pond probes ──► ESP32 gateway ──► MQTT broker ──► mqtt_bridge.py ──┐
+ (DO, temp, pH, NTU, ammonium)     (Mosquitto, QoS 1)               │  POST /readings (X-Device-Key)
+                 or HTTPS POST /readings directly ──────────────────┤
+                                                                    ▼
+ Tank camera ──► PC running ml/track_fish.py ──────────────► FastAPI backend ──► PostgreSQL
+                 (OpenCV or YOLO + ByteTrack) and               │  quality check → store → alerts,
+                 ml/fish_activity.py (OpenCV)                   │  dawn forecast, fish health
+                                                                ├──► React dashboard (60 s refresh)
+                                                                └──► CSV export for analysts
 
- Fish photos ──► ml/predict_disease.py (OpenCV features + SVM)   [offline, assistive]
+ Fish photo (phone) ──► dashboard ──► POST /disease/check ──► ml/disease_service.py (CNN)  [assistive]
 ```
+
+`docker compose up` runs the broker, the bridge, the backend with the built dashboard, and
+PostgreSQL; the photo checker runs with `--profile ml`. Local development can use SQLite.
 
 ### Data model
 
@@ -83,6 +90,8 @@ These tables already exist in the migration:
   and **resolves itself** once the value recovers past the limit plus hysteresis, so values hovering
   near a limit don't flood staff. Staff can mark an alert as seen.
 - `import_runs`: audit trail for bulk CSV imports, with a SHA-256 of the file.
+- `fish`, `fish_positions`: every tracked fish (name, notes, in tank or removed) and its positions.
+- `users`, `audit_log`: operator login and a record of who changed what.
 - `media_assets`, `labels`: reserved for camera clips and expert disease labels (Phase 4).
 
 ### Key design rules
@@ -107,15 +116,14 @@ These tables already exist in the migration:
    - `surface_activity`: the % of that motion in the top 20% of the frame
 3. It posts both values to `/readings` as the tank's camera sensors, and can also write a CSV.
 
-Because camera metrics are stored as ordinary readings, they show up in the dashboard's **Oxygen and
-fish behaviour** panel (time-aligned with DO) and in the **wide** CSV export, which has one row per
-timestamp with a column per metric. An analyst can load that file and correlate behaviour with DO
-straight away.
+Because camera metrics are stored as ordinary readings, the tank page charts them over the last 24
+hours (**Fish activity** and **Surface activity**), and they appear in the **wide** CSV export, which
+has one row per timestamp with a column per metric. An analyst can load that file and correlate
+behaviour with DO straight away.
 
 **Limits of this approach.** Motion % depends on camera height, lighting, stocking density and water
 clarity. Compare it within the same camera over time, not between tanks. Night-time needs IR
-lighting. Identifying individual fish (counting, trajectories, YOLO-style detection) is a Phase 5
-upgrade.
+lighting. Individual fish (counting, routes, per-fish health) are tracked separately, in §5b.
 
 ## 5b. Tracking each fish (added 20 Nov 2026)
 
@@ -190,7 +198,6 @@ filenames, so the adapter can't load the images. `ml/download_dataset.py` uses
 - **All 700 Test images are byte-identical copies of Train images.** Scoring on the official Test split
   gives a meaningless 100%.
 - Train has 3 exact duplicates, and 1 image is filed under two different diseases.
-
 - Train also holds near-copies of the same photo (resized, mirrored, rotated). With a random split,
   11% of test images had a near-copy in training. `ml/disease_data.py` groups near-copies by
   perceptual hash and keeps each group on one side of the split (details in `docs/DATASETS.md`).
@@ -217,14 +224,14 @@ the `media_assets` and `labels` tables, then fine-tune the CNN on them and check
 
 ## 7. Roadmap
 
-| Phase | Scope | Done when |
-|---|---|---|
-| **1–2 (done)** | Data model, migrations, API, quality rules, alert lifecycle, simulator, CSV import, CSV export, dashboard, OpenCV activity meter, baseline disease model, tests | `pytest` passes for backend and ml; the dashboard runs on simulated data |
-| **3: real sensors** | Choose and install probes (an optical DO probe is preferred for low upkeep), ESP32/RPi gateway posting every 1–5 min, calibration records, offline buffering on the gateway, device-offline alert | One pond streams real data for 2 weeks; manual check readings agree within probe spec |
-| **3b: notifications** | SMS / WhatsApp / phone call for critical DO, especially 02:00–07:00; escalation if nobody marks it seen | A test alert reaches the on-call phone in under 1 minute |
-| **4: behaviour + disease** | Camera on one tank; collect paired DO and behaviour data; derive data-driven activity limits; CNN disease model with farm photos | Activity limit validated against at least 5 real low-DO events; disease model recall ≥ 80% on farm photos |
-| **5: prediction** | Forecast tonight's dawn DO from the afternoon trend, temperature and weather, so aerators can start early | Forecast error under 1 mg/L on held-out nights |
-| **6: hardening** | User login and roles (replacing shared keys), HTTPS, PostgreSQL in production, backups, retention policy, audit log | Security review passes |
+| Phase | Scope | Done when | Status (28 Nov 2026) |
+|---|---|---|---|
+| **1–2** | Data model, migrations, API, quality rules, alert lifecycle, simulator, CSV import, CSV export, dashboard, OpenCV activity meter, disease model, tests | `pytest` passes for backend and ml; the dashboard runs on simulated data | **Done.** Plus per-fish tracking, FISHUT dashboard for all screen sizes, ammonium metric |
+| **3: real sensors** | Choose and install probes (an optical DO probe is preferred for low upkeep; an ammonium probe), ESP32 gateway posting every 1–5 min, calibration records, offline buffering on the gateway, device-offline alert | One pond streams real data for 2 weeks; manual check readings agree within probe spec | **Software done:** device registry, calibrations table, device-offline alert, MQTT broker + bridge (tested with a fake ESP32, nothing lost while the API is down). **Left:** buy and install probes, ESP32 firmware, calibration, the 2-week run |
+| **3b: notifications** | SMS / WhatsApp / phone call for critical DO, especially 02:00–07:00; escalation if nobody marks it seen | A test alert reaches the on-call phone in under 1 minute | **Left:** needs an SMS / call provider |
+| **4: behaviour + disease** | Camera on one tank; collect paired DO and behaviour data; derive data-driven activity limits; CNN disease model with farm photos | Activity limit validated against at least 5 real low-DO events; disease model recall ≥ 80% on farm photos | **Software done:** activity-limit derivation, CNN (92.8% on web photos), YOLO detector (IDF1 76% on lab video), photo check on the dashboard. **Left:** camera at the farm, the farm's labelled photos and video, validation against real low-DO events |
+| **5: prediction** | Forecast tonight's dawn DO from the afternoon trend, temperature and weather, so aerators can start early | Forecast error under 1 mg/L on held-out nights | **Built:** dawn forecast (persistence + anomaly) and a 3-hour early-warning model (92% of crash hours warned on USGS lake data). **Left:** validate both on the farm's nights, add weather |
+| **6: hardening** | User login and roles (replacing shared keys), HTTPS, PostgreSQL in production, backups, retention policy, audit log | Security review passes | **Done:** login, audit log, retention, backups, PostgreSQL via docker compose. **Left:** HTTPS / MQTT TLS, per-device keys, security review |
 
 ## 8. Risks and open questions for the farm
 
@@ -236,9 +243,16 @@ the `media_assets` and `labels` tables, then fine-tune the CNN on them and check
   `received_at`.
 - **Probe fouling.** DO and pH probes drift. A cleaning and calibration schedule has to be followed,
   and the `calibrations` table is there to record it.
-- **Shared API keys** are fine for a prototype only. In the current setup the operator key ships inside
-  the dashboard bundle (`VITE_OPERATOR_KEY`), so anyone who can open the dashboard can act as an
-  operator. Put the dashboard behind a login before exposing it outside the farm network.
+- **Security before going online.** Operators now log in (session cookie); viewing stays open. All
+  devices still share one `DEVICE_API_KEY`, the MQTT broker has one shared login, and neither the API
+  nor MQTT uses TLS yet. Change every dev password and key, add per-device keys and TLS, and keep the
+  system on the farm network until then.
+- **Models trained on someone else's fish.** The disease CNN learned from web photos, YOLO from lab
+  zebrafish, and the early-warning model from a US lake. They show that the methods work; their
+  accuracy on this farm is unknown until they are retrained on the farm's own labelled data.
+- **Licences.** Ultralytics YOLO is AGPL-3.0, and 3D-ZeF20 (used to train and test YOLO) is
+  non-commercial. Fine for this project; a commercial product needs a licence or a different detector,
+  trained on the farm's own video.
 
 ## Sources
 
@@ -255,13 +269,39 @@ the `media_assets` and `labels` tables, then fine-tune the CNN on them and check
 - Dataset description: [GTS listing](https://gts.ai/dataset-download/freshwater-fish-disease-aquaculture-in-south-asia/);
   [Indian Journal of Animal Research](https://arccjournals.com/journal/indian-journal-of-animal-research/bf-1946).
 - kagglehub adapters: [kagglehub README](https://raw.githubusercontent.com/Kaggle/kagglehub/main/README.md).
+- Ammonia toxicity (NH₃ share by pH and temperature): Emerson et al. (1975), *J. Fish. Res. Board Can.* 32: 2379–2383.
+- Every dataset used or rejected (USGS, 3D-ZeF20, Kaggle, Mendeley), with licences: [docs/DATASETS.md](DATASETS.md).
 - Fish behaviour and computer vision: [Fish tracking & behaviour survey (arXiv 2406.17800)](https://arxiv.org/html/2406.17800v1);
   [Hypoxia stress behaviour detection](https://chaoweifang.github.io/publication/aquaculture25real-time);
   [Computer vision fish-behaviour monitoring review (PMC5903295)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5903295/).
 
-## 9. Work log — done vs. left (status as of 20 Nov 2026, commit 2bb3b29 on main)
+## 9. Work log — done vs. left (status as of 28 Nov 2026)
 
-### Done
+### Done on 28 Nov 2026 (everything that needs no hardware)
+
+- **FISHUT dashboard.** Renamed to FISHUT. Layout works from 320 px phones to wide screens, with
+  touch-size controls and 16 px inputs (no iPhone zoom). Water tiles wrap for any number of metrics;
+  the coloured status edges on alerts and findings were being overridden and now show again.
+- **Ammonium** metric (placeholder limits 0.5 / 1.0 mg/L), in the simulator, dashboard and advice.
+- **PostgreSQL through `docker compose`.** The compose file pointed at a deleted Dockerfile; it now
+  builds the full-stack image on PostgreSQL. Running it exposed a bug that meant PostgreSQL had never
+  worked: the seed inserted rows before the rows they reference. Fixed; the backend tests run on
+  PostgreSQL with `TEST_DATABASE_URL` and on SQLite.
+- **MQTT.** Mosquitto broker with a login, `backend/scripts/mqtt_bridge.py` (QoS 1, acknowledges a
+  message only after the API stored it) and `backend/scripts/fake_esp32.py`. Tested end to end:
+  anonymous clients are refused, and readings published while the API was down arrived once it was back.
+- **Dashboard additions.** Camera activity charts; the "Tonight" low-oxygen warning from the new
+  forecast (below); a photo check on each fish's page (`POST /disease/check`, operators only, runs the
+  CNN in `ml/disease_service.py`; opt-in compose profile `ml`).
+- **ML, all in a Docker image (`ml/Dockerfile`), results in `ml/README.md`:**
+  - Disease photos: SVM, Random Forest, Logistic Regression and a MobileNetV3 CNN on one split with no
+    near-duplicate photos across train and test. CNN 92.8%, Random Forest 74.4% (random guessing 14%).
+  - YOLO11n fish detector: on unseen lab video, IDF1 58% → 76%, fish found 69% → 93%.
+  - Low-oxygen early warning (entry below).
+- **`docs/DATASETS.md`:** source, licence, split and known problems of every dataset, including the
+  two public pond datasets that were rejected and why.
+
+### Done: details by phase
 
 - **Phase 3 server-side — device-offline alert.** Devices post readings every 1–5 min;
   `evaluate_device_offline` (`backend/app/services/alerts.py`) sweeps on every `GET /alerts` and
@@ -307,7 +347,7 @@ the `media_assets` and `labels` tables, then fine-tune the CNN on them and check
     (`app/services/retention.py`) + `scripts/retain.py`. Tests: `tests/test_retention.py`.
   - Backup: `scripts/backup.sh` (copies the SQLite file, `pg_dump` for PostgreSQL).
 
-All 33 backend tests pass; `npm run build` passes.
+Tests now: 43 backend (on SQLite and PostgreSQL) and 15 ML pass; `npm run build` passes.
 
 - **Dashboard wired to fish tracking (20 Nov 2026, merged after the above).** The opencode commits
   added login to the *old* water-only dashboard, so the new tank and fish pages were unreachable.
@@ -318,14 +358,29 @@ All 33 backend tests pass; `npm run build` passes.
 
 ### Left
 
-- **Phase 3 install — probes + gateway.** The gateway must post readings every 1–5 min to
-  `POST /readings` with `X-Device-Key`; each device must be registered in `devices`. Farm
-  decisions: which DO probe and which gateway (ESP32/RPi).
-- **Phase 3b — SMS/phone-call notifications.** The treg catalog has no SMS-send or phone-call
+Everything left needs the farm's hardware, its data or a decision from the team.
+
+- **Phase 3 install: probes + gateway.**
+  - Choose and buy the probes (DO, temperature, pH, turbidity, ammonium) and the gateway.
+  - Write the ESP32 firmware: publish to MQTT `fishut/readings/<device>`, buffer while offline.
+  - Register each device and sensor, then calibrate (pH buffers, DO) and record it in `calibrations`.
+  - Stream one pond for 2 weeks and compare with manual test-kit readings.
+- **Confirm the alert limits** for the farm's species and life stages with the fisheries officer.
+  Every limit is provisional now; turbidity and ammonium are placeholders.
+- **Phase 3b: SMS / phone-call notifications.** The treg catalog has no SMS-send or phone-call
   provider (`catalog_request`s filed: #3856 `sms.send`, #3855 `phone.call`). Needs the team to add
   a provider or use their own SMS bridge.
-- **Phase 4 — CNN + farm photos.** The farm-scraped baseline doesn't match the farm's camera,
-  lighting and species; needs the farm's own labelled photos (per class, e.g. healthy + the
-  South-Asian carp diseases).
-- **Phase 5 — validation on held-out nights.** Forecast error on real pre-dawn events; needs real
-  sensors and watching actual overnight DO vs the forecast.
+- **Phase 4: camera and farm data.**
+  - Mount a fixed camera with IR light for night, photograph the empty tank, measure the tank.
+  - Draw fish boxes on the farm's video and fine-tune YOLO on them.
+  - Collect the farm's own fish photos, labelled by a fish-health expert, and fine-tune the CNN.
+    The target is ≥ 80% recall per disease.
+  - Check activity limits against at least 5 real low-oxygen events.
+  - Check that tracking runs fast enough on the farm PC.
+- **Phase 5: prediction on real nights.** Measure the dawn forecast's error on the farm's nights
+  (target under 1 mg/L) and retrain the early-warning model on FISHUT's own sensor data. Then decide
+  which one triggers the "Tonight" warning. Add weather if it helps.
+- **Phase 6: before going online.**
+  - Change every dev password and key.
+  - Add per-device keys, and HTTPS and MQTT TLS.
+  - Pass a security review.

@@ -8,21 +8,60 @@ its tankmates (a sign it may be unwell). Analysts can download all water reading
 The full problem statement, design, research and roadmap are in **[docs/PLAN.md](docs/PLAN.md)**; every
 dataset used for training and testing (source, licence, split, known problems) is in **[docs/DATASETS.md](docs/DATASETS.md)**.
 
+## Status (28 Nov 2026)
+
+**Built and tested, running on simulated data.** No real sensor or camera is connected yet.
+
+- Software: readings API with quality checks and alerts, MQTT for ESP32 gateways, PostgreSQL,
+  operator login, audit log, CSV import/export, and a dashboard for phones to wide screens. The
+  dashboard covers water, ammonium, every fish, camera activity, a "Tonight" low-oxygen warning and a
+  photo check for disease.
+- Models on public data:
+
+  | Model | Result |
+  |---|---|
+  | Disease CNN, 7 classes | 92.8% |
+  | YOLO fish detector | IDF1 76% (OpenCV: 58%) |
+  | Low-oxygen early warning, 3 h ahead | warns before 92% of crash hours |
+
+  The numbers come from web photos, lab zebrafish and a US lake, not this farm.
+
+**Left (needs the farm or the team):**
+- Install probes, an ESP32 gateway and the tank camera, with calibration.
+- SMS / phone alerts.
+- Retrain the models on the farm's own labelled photos, video and sensor data.
+- Confirm the alert limits per species.
+- HTTPS / TLS and a security review.
+
+Details: [docs/PLAN.md §7 and §9](docs/PLAN.md#7-roadmap).
+
 ## What's in the repo
 
 | Folder | What it is |
 |---|---|
-| `backend/` | FastAPI + SQLAlchemy + Alembic. Readings ingestion, quality checks, alert rules, CSV export, simulator |
-| `frontend/` | React + Vite dashboard: tank page (water check + fish in the tank), fish profile pages, data download |
-| `ml/` | OpenCV + ByteTrack fish tracker, tank activity meter, fish-disease image classifier |
-| `docs/PLAN.md` | Plan, sources, roadmap |
+| `backend/` | FastAPI + SQLAlchemy + Alembic: readings ingestion, quality checks, alerts, dawn-oxygen forecast, fish behaviour and health, login, CSV import/export, simulator, MQTT bridge (`scripts/mqtt_bridge.py`) and a fake ESP32 (`scripts/fake_esp32.py`) |
+| `frontend/` | React + Vite dashboard: tank page (water, alerts, fish in the tank, camera activity), fish profile pages with a photo check, data download |
+| `ml/` | Fish tracker (OpenCV or YOLO + ByteTrack), activity meter, disease models (Random Forest, CNN), low-oxygen early warning, benchmarks, Docker image |
+| `mqtt/` | Mosquitto broker config |
+| `docker-compose.yml` | PostgreSQL, API + dashboard, MQTT broker and bridge; photo checker with `--profile ml` |
+| `docs/` | `PLAN.md` (plan, roadmap, done vs left), `DATASETS.md` (every dataset) |
 
 Measured: **dissolved oxygen**, temperature, pH, turbidity, ammonium, plus camera-based fish activity and surface
 activity. TDS is not used.
 
-## Run it locally
+## Run it with Docker (recommended)
 
-You need Python 3.11+ and Node 20+.
+```bash
+docker compose up -d --build                 # http://127.0.0.1:8000 (dashboard + API, API docs at /docs)
+docker compose --profile ml up -d --build    # also the photo checker (needs a trained CNN, see below)
+```
+
+This starts PostgreSQL, the API serving the built dashboard (migrations and the demo seed run on
+start), the MQTT broker on port 1883 and the bridge. Data is kept in the `pgdata` volume.
+
+## Run it locally (development)
+
+You need Python 3.11+ and Node 20+. Without `DATABASE_URL` the backend uses a local SQLite file.
 
 ```powershell
 # 1. Backend  (http://127.0.0.1:8000, API docs at /docs)
@@ -65,6 +104,11 @@ hour. **Health is judged by comparing each fish with its tankmates on the same d
 any species without tuning: much less active, resting on the bottom, staying at the surface, keeping
 apart from the group, or not seen for 2 hours. Each finding comes with a plain-language suggestion.
 It is a prompt to look at the fish, not a diagnosis.
+
+With trained YOLO weights, add `--yolo path/to/weights.pt` to detect fish with YOLO instead of the
+background difference. On a zebrafish benchmark this separates touching fish and raises IDF1 from 58% to
+76% (`ml/README.md`). The weights in this repo's results are trained on non-commercial lab data, so a
+farm detector needs boxes drawn on the farm's own video.
 
 Known limit: when two similar fish cross, the tracker can swap their ids. If identity must be
 guaranteed all day, run [TRex](https://trex.run) or [idtracker.ai](https://idtracker.ai) on the video
@@ -162,14 +206,17 @@ three most likely conditions.
 ## Tests
 
 ```powershell
-cd backend; python -m pytest -q     # API, alerts, simulator, import, export, fish behaviour + health
-cd ..; python -m pytest -q ml       # OpenCV tracker, activity meter and features
+cd backend; python -m pytest -q     # 43 tests: API, alerts, forecast, MQTT bridge, photo check, fish behaviour + health
+cd ..; python -m pytest -q ml       # 15 tests: tracker, activity meter, data splits, YOLO labels, early-warning labels
+cd frontend; npm run build          # type-check and build
 
 # Score the fish tracker on real zebrafish with hand-labelled identities (3D-ZeF20, front camera).
 # Downloads ~0.5 GB of one sequence into data/zef/. Data is CC BY-NC-SA: internal testing only.
 python ml/benchmark_tracker.py --seq ZebraFish-02
-cd frontend; npm run build          # type-check and build
 ```
+
+The ML tests also run in the Docker image:
+`docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work:z" fishut-ml python -m pytest -q ml`.
 
 ## Configuration (`.env`)
 
@@ -192,9 +239,17 @@ demo data. Devices keep using `X-Device-Key`.
 
 ## Important caveats
 
-- Alert limits are general warm-water pond guidance (Boyd 1982 / ICAR). Confirm them for your species.
+- Alert limits (including ammonium) are general warm-water pond guidance (Boyd 1982 / ICAR).
+  Confirm them for your species.
 - All demo readings are `source=simulator`. They are not measurements.
-- `docker compose up` starts PostgreSQL, the API with the built dashboard (http://127.0.0.1:8000; it
-  runs migrations and the demo seed on start), the MQTT broker and the bridge.
+- Every model was trained and scored on public data: web photos, lab zebrafish, a US lake. The numbers
+  show which methods work, not how well they work on this farm. Retrain them on the farm's own data
+  before relying on them. Disease output is a hint to inspect a fish, never a diagnosis.
+- The dawn-oxygen forecast is tested only on synthetic curves. The dashboard shows it only as a
+  low-oxygen warning, never as reassurance, until it is checked against real nights.
+- Licences: YOLO (Ultralytics) is AGPL-3.0, and 3D-ZeF20 is non-commercial. A closed commercial
+  product would need a different detector, or a licence, and the farm's own training video.
+- The dev passwords and keys (`.env.example`, MQTT) must be changed before anything faces a network.
+  The API and MQTT do not use TLS yet.
 - Run the backend tests on PostgreSQL with `TEST_DATABASE_URL=postgresql+psycopg://...` pointing at an
   empty database; SQLite does not enforce foreign keys, so it misses insert-order bugs.
